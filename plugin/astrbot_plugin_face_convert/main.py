@@ -16,7 +16,7 @@ import time
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
-from astrbot.core.message.components import Face, Image, Plain, Record, Video
+from astrbot.core.message.components import At, Face, Image, Plain, Record, Reply, Video
 
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 MAX_REPLACE = 8  # 单条消息最多替换几个表情，防刷屏
@@ -26,7 +26,7 @@ MAX_REPLACE = 8  # 单条消息最多替换几个表情，防刷屏
     "astrbot_plugin_face_convert",
     "dafeiyu-tools",
     "把 LLM 回复中的 [流泪][doge] 等文字表情自动转换为真实 QQ 表情段",
-    "1.0.0",
+    "1.1.0",
 )
 class FaceConvertPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -44,8 +44,9 @@ class FaceConvertPlugin(Star):
         self.pattern = re.compile(r"\[([^\[\]]{1,8})\]")
         # 表情冷却：记录她最近用过哪些脸的 id（治"又发好多狗头"）
         self._recent_faces: list[int] = []
-        # DashScope key（用于语音转写）
+        # DashScope key（用于语音转写）+ 管理员名单（群聊里标成「主人」）
         self.dashscope_key = ""
+        self.admins: list[str] = []
         try:
             cfg_path = os.path.abspath(
                 os.path.join(PLUGIN_DIR, "..", "..", "cmd_config.json")
@@ -56,6 +57,7 @@ class FaceConvertPlugin(Star):
                 if prov.get("id") == "dashscope_tts" and prov.get("api_key"):
                     self.dashscope_key = prov["api_key"]
                     break
+            self.admins = [str(a).strip() for a in (cfg.get("admins_id") or [])]
         except Exception as e:
             logger.warning(f"[face_convert] 读取 DashScope key 失败: {e}")
         logger.info(
@@ -332,6 +334,41 @@ class FaceConvertPlugin(Star):
                 event.message_str = ((event.message_str or "") + " " + extra).strip()
                 logger.info(f"[face_convert] 收信翻译: {extra}")
 
+        # 身份标记（只进她的上下文，对方看不到字面量）：
+        # 群聊 -> [昵称(QQ号)]，管理员标「主人」；陌生人私聊 -> [主人的朋友 昵称(QQ号)]
+        try:
+            if not event.get_extra("_fy_tagged"):
+                sid = str(event.get_sender_id())
+                is_group = bool(event.get_group_id())
+                is_guest = (not is_group) and event.is_private_chat() and sid not in self.admins
+                if is_group or is_guest:
+                    name = re.sub(r"[\[\]\r\n]", "", (event.get_sender_name() or "").strip())[:16]
+                    if is_group and sid in self.admins:
+                        tag = f"主人({sid})"
+                    elif is_group:
+                        tag = f"{name}({sid})" if name else f"群友({sid})"
+                    else:
+                        tag = f"主人的朋友 {name}({sid})" if name else f"主人的朋友({sid})"
+                    text = (event.message_str or "").strip()
+                    if text:
+                        event.message_str = f"[{tag}] {text}"
+                        event.set_extra("_fy_tagged", True)
+                        logger.info(f"[face_convert] 身份标记: {tag}")
+                    elif is_group and event.is_wake and not any(
+                        (isinstance(c, At) and str(c.qq) == str(event.get_self_id()))
+                        or (
+                            isinstance(c, Reply)
+                            and str(getattr(c, "sender_id", "")) == str(event.get_self_id())
+                        )
+                        for c in comps
+                    ):
+                        # 只喊了名字、没带内容：给她一个回应的由头
+                        event.message_str = f"[{tag}] （喊了你一声）"
+                        event.set_extra("_fy_tagged", True)
+                        logger.info(f"[face_convert] 群聊空唤醒标记: {tag}")
+        except Exception as e:
+            logger.warning(f"[face_convert] 身份标记失败: {str(e)[:100]}")
+
     SCRUB_RE = re.compile(r"[（(]{2}.*?[）)]{2}", re.DOTALL)
     # 嘴硬橡皮擦：擦掉"看不清/模模糊糊/隐约"类小尾巴（上下文回声病，人格治不动）
     # 边界字符集含半角标点/引号/空白，防咬边
@@ -344,10 +381,13 @@ class FaceConvertPlugin(Star):
     )
 
     # meta 口癖关键字（引用了注入内容或自我说明的句子，整句丢）
-    META_KW = re.compile(
+    _META_BASE = (
         r"PROTOCOL_ENFORCEMENT|必须生成|必须输出|系统等待|系统自检|System:|星绘|报告前辈|"
         r"一个字都不理|不吃这套|又来又来|不照(?:着|谁)|钓鱼的饵|这饵"
     )
+    META_KW = re.compile(_META_BASE)  # 私聊版：留着她"喊冤/自我修正"的通道
+    # 群聊版：把"框框/顶着嘴"这类也擦掉——朋友们不该看到她拆自己的台
+    META_KW_GROUP = re.compile(_META_BASE + r"|框框|顶着.{0,3}嘴")
 
     @filter.on_llm_response()
     async def scrub_drafts(self, event: AstrMessageEvent, response) -> None:
@@ -365,10 +405,11 @@ class FaceConvertPlugin(Star):
             if hedged != cleaned:
                 cleaned = hedged
                 logger.info("[face_convert] 已擦掉嘴硬小尾巴")
-            if self.META_KW.search(cleaned):
+            kw = self.META_KW_GROUP if event.get_group_id() else self.META_KW
+            if kw.search(cleaned):
                 # 按句丢弃带 meta 标记的句子（她那些"不理它/不照模板走"的前戏）
                 parts = re.split(r"(?<=[。！？\n])", cleaned)
-                kept = [s for s in parts if not self.META_KW.search(s)]
+                kept = [s for s in parts if not kw.search(s)]
                 joined = "".join(kept).replace("---", "")
                 joined = re.sub(r"\n{2,}", "\n", joined).strip().strip("，、")
                 if joined.strip("，。！？、：;；~… \n"):
