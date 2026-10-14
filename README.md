@@ -25,8 +25,10 @@ plugin/astrbot_plugin_face_convert/   ← 核心插件（AstrBot 插件，直接
 persona/大肥鱼-人格.md                 ← 人格提示词（可直接导入 AstrBot）
 persona/课程记忆-模板.md               ← "让她自己悟"的教学记忆模板
 docs/部署指南.md                       ← 从零搭建的路线图
+docs/导入指南.md                       ← 人格 / 课程记忆 / 音色 手把手导入教程
 docs/踩坑合集.md                       ← ⭐ 最有价值的部分：所有坑与解法
 assets/avatars/                        ← 头像素材（12 张，含授权署名）
+assets/voice-demo/                     ← 音色样本与复刻链路说明
 ```
 
 ## 🚀 快速开始
@@ -34,8 +36,9 @@ assets/avatars/                        ← 头像素材（12 张，含授权署�
 1. 按 `docs/部署指南.md` 搭好 AstrBot + NapCat + QQ 小号
 2. 把 `plugin/astrbot_plugin_face_convert/` 放进 AstrBot 的 `data/plugins/`
    （插件会自动读取你 AstrBot 配置里的 DashScope key，用于语音/视频理解）
-3. 在 AstrBot 里新建人格，粘贴 `persona/大肥鱼-人格.md` 正文
-4. 重启，开聊 🎉
+3. 在 AstrBot 里新建人格：粘贴 `persona/大肥鱼-人格.md` 的**第一节正文 + 第五节收尾块**
+4. 想要语音条 / 记忆 / 自定义音色？照 `docs/导入指南.md` 继续
+5. 重启，开聊 🎉
 
 ## 🔌 插件做了什么
 
