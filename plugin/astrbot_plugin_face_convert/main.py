@@ -17,6 +17,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 from astrbot.core.message.components import At, Face, Image, Plain, Record, Reply, Video
+from astrbot.core.star.session_llm_manager import SessionServiceManager
 
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 MAX_REPLACE = 8  # 单条消息最多替换几个表情，防刷屏
@@ -434,6 +435,29 @@ class FaceConvertPlugin(Star):
         if result is None or not result.is_llm_result():
             return
 
+        # 思维链防漏：EmotionAI 的 <thought> 块偶尔会漏进消息（甚至被 TTS 念出来）。
+        # 在"出门关口"再查一遍，不影响 EmotionAI 自己的情绪提取。
+        if any(
+            isinstance(c, Plain) and c.text and "<thought" in c.text
+            for c in result.chain
+        ):
+            cleaned_chain = []
+            for c in result.chain:
+                if isinstance(c, Plain) and c.text:
+                    t = re.sub(r"<thought>.*?</thought>", "", c.text, flags=re.DOTALL)
+                    # 未闭合的 <thought>：从它一直截到结尾
+                    t = re.sub(r"<thought>.*$", "", t, flags=re.DOTALL)
+                    t = t.replace("</thought>", "").strip()
+                    if not t:
+                        continue
+                    c.text = t
+                cleaned_chain.append(c)
+            logger.info("[face_convert] 已摘掉漏出的 <thought> 思维链块")
+            if not cleaned_chain:
+                result.chain = []
+                return
+            result.chain = cleaned_chain
+
         # 暗号：整条消息都是怪东西时，LLM 只输出 [NO_REPLY] -> 整条回复蒸发
         joined = "".join(
             c.text for c in result.chain if isinstance(c, Plain) and c.text
@@ -494,3 +518,29 @@ class FaceConvertPlugin(Star):
                 + (f"，脱括号 {stripped} 个（字典不认的）" if stripped else "")
                 + (f"，冷却丢弃 {dropped_faces} 个" if dropped_faces else "")
             )
+
+    # ---------------- 语音开关（会话级，走 AstrBot 官方会话配置） ----------------
+
+    @filter.command("语音开")
+    async def voice_on(self, event: AstrMessageEvent):
+        """开启本会话的语音条。"""
+        await SessionServiceManager.set_tts_status_for_session(
+            event.unified_msg_origin, True
+        )
+        yield event.plain_result("开麦！想听我说话就多喊我两句呀~")
+
+    @filter.command("语音关")
+    async def voice_off(self, event: AstrMessageEvent):
+        """关闭本会话的语音条（文字照常聊）。"""
+        await SessionServiceManager.set_tts_status_for_session(
+            event.unified_msg_origin, False
+        )
+        yield event.plain_result("好嘛好嘛，我先闭嘴，文字照聊！（小声嘟囔）")
+
+    @filter.command("语音状态")
+    async def voice_status(self, event: AstrMessageEvent):
+        """查询本会话的语音条开关状态。"""
+        on = await SessionServiceManager.is_tts_enabled_for_session(
+            event.unified_msg_origin
+        )
+        yield event.plain_result(f"语音条现在是{'开' if on else '关'}的哦~")
