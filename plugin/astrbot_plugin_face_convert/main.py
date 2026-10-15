@@ -413,6 +413,14 @@ class FaceConvertPlugin(Star):
                 kept = [s for s in parts if not kw.search(s)]
                 joined = "".join(kept).replace("---", "")
                 joined = re.sub(r"\n{2,}", "\n", joined).strip().strip("，、")
+                # meta 句被整句丢掉以后可能留下配对不上的括号残骸（比如结尾一个
+                # 孤零零的"）"）。按数量补删：哪种括号多出来就删哪个，配对好的不动。
+                for op, cl in (("（", "）"), ("(", ")"), ("【", "】"), ("《", "》")):
+                    while joined.count(cl) > joined.count(op):
+                        joined = joined[::-1].replace(cl, "", 1)[::-1]
+                    while joined.count(op) > joined.count(cl):
+                        joined = joined[::-1].replace(op, "", 1)[::-1]
+                joined = joined.strip()
                 if joined.strip("，。！？、：;；~… \n"):
                     cleaned = joined
                     logger.info("[face_convert] 已清扫 meta 口癖")
