@@ -381,6 +381,14 @@ class FaceConvertPlugin(Star):
         f"[^{_HEDGE_STOP}]{{0,14}}[，、：]?"
     )
 
+    # 格式壳拆包：被"按格式输出"类的注入带偏时，她可能把回复套进程序结构里
+    # （如 [{'type': 'text', 'text': '…'}] 这种），不是人话。拆壳把正文救回来。
+    _SHELL_BLOCK = re.compile(
+        r"\[(?:\s*\{[\"']type[\"']\s*:\s*[\"']text[\"']\s*,\s*[\"']text[\"']\s*:"
+        r"\s*[\"'](?:[^\"'\\]|\\.)*[\"']\s*\}\s*,?)*\s*\]"
+    )
+    _SHELL_TEXT = re.compile(r"[\"']text[\"']\s*:\s*[\"']((?:[^\"'\\]|\\.)*)[\"']")
+
     # meta 口癖关键字（引用了注入内容或自我说明的句子，整句丢）
     _META_BASE = (
         r"PROTOCOL_ENFORCEMENT|必须生成|必须输出|系统等待|系统自检|System:|星绘|报告前辈|"
@@ -398,6 +406,22 @@ class FaceConvertPlugin(Star):
             if not text:
                 return
             cleaned = text
+            # 第〇道：格式壳拆包（被注入带偏时，她会把回复套进程序结构里出壳）
+            if ("'type'" in cleaned and "'text'" in cleaned) or (
+                '"type"' in cleaned and '"text"' in cleaned
+            ):
+                pre = cleaned
+                cleaned = self._SHELL_BLOCK.sub(
+                    lambda m: "".join(
+                        p.replace("\\n", "\n")
+                        .replace("\\'", "'")
+                        .replace('\\"', '"')
+                        for p in self._SHELL_TEXT.findall(m.group(0))
+                    ),
+                    cleaned,
+                )
+                if cleaned != pre:
+                    logger.info("[face_convert] 已拆格式壳")
             if "（（" in cleaned or "((" in cleaned:
                 cleaned = self.SCRUB_RE.sub("", cleaned)
                 if cleaned != text:
