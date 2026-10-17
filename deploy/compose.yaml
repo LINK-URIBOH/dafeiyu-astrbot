@@ -1,0 +1,31 @@
+# 大肥鱼 · 云端部署编排（AstrBot + NapCat）
+# 用法：把 deploy/ 下的文件放到服务器 /opt/dafeiyu/，按需修改路径与账号后
+#       docker compose up -d
+services:
+  astrbot:
+    build: .
+    image: dafeiyu-astrbot:latest
+    container_name: astrbot
+    restart: unless-stopped
+    ports:
+      - "6185:6185"            # AstrBot 面板
+    volumes:
+      - /opt/dafeiyu/astrbot/data:/AstrBot/data
+      # 核心补丁用 bind-mount 接入：升级镜像不会覆盖（见 docs/踩坑合集）
+      - /opt/dafeiyu/patches/dashscope_tts.py:/AstrBot/astrbot/core/provider/sources/dashscope_tts.py:ro
+      - /opt/dafeiyu/patches/stage.py:/AstrBot/astrbot/core/pipeline/result_decorate/stage.py:ro
+    environment:
+      - TZ=Asia/Shanghai
+
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: napcat
+    restart: unless-stopped
+    ports:
+      - "6099:6099"            # NapCat WebUI（扫码 / 管理）
+    volumes:
+      - /opt/dafeiyu/napcat/config:/app/napcat/config
+      - /opt/dafeiyu/napcat/qq:/app/.config/QQ
+    environment:
+      - TZ=Asia/Shanghai
+      - NAPCAT_ACCOUNT=your_qq_account   # 填小号 QQ 号
