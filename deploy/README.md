@@ -81,8 +81,12 @@ QQ 用户 ⇄ 腾讯服务器 ⇄ NapCat(Docker) ⇄ WebSocket(6199) ⇄ AstrBot
 在 `astrbot/data/plugins/astrbot_plugin_face_convert/` 下放 `config.json` 可覆盖默认值：
 
 ```json
-{"hedge_eraser": true, "face_cooldown_minutes": 10, "max_media_mb": 20,
- "video_timeout_s": 150, "asr_timeout_s": 60, "max_concurrent_media": 2}
+{"hedge_eraser": true, "face_cooldown_minutes": 10, "max_media_mb": 80,
+ "video_max_duration_s": 300, "video_max_frames": 16, "video_audio_chunk_s": 60,
+ "video_timeout_s": 300, "vl_timeout_s": 60, "asr_timeout_s": 60,
+ "max_concurrent_media": 1, "video_workers": 2, "media_queue_timeout_s": 10}
 ```
 
 `hedge_eraser=false` 可整体关闭"嘴硬橡皮擦"；含"重发/再说一遍"等请求词的回复本来就永不误删。
+
+旧配置不会自动改写，请合并更新后重载插件或重启 AstrBot。详见 [3～5 分钟视频识别](../docs/视频识别.md)。

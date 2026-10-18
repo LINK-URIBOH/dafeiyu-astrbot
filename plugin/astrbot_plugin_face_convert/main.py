@@ -7,11 +7,14 @@
 """
 
 import asyncio
+import base64
 import json
+import math
 import os
 import re
 import tempfile
 import time
+from dataclasses import dataclass, field
 
 import aiohttp
 
@@ -23,6 +26,53 @@ from astrbot.core.star.session_llm_manager import SessionServiceManager
 
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 MAX_REPLACE = 8  # 单条消息最多替换几个表情，防刷屏
+DEFAULT_CONFIG = {
+    "hedge_eraser": True,
+    "face_cooldown_minutes": 10,
+    "max_media_mb": 80,
+    "video_timeout_s": 300,
+    "video_max_duration_s": 300,
+    "video_max_frames": 16,
+    "video_audio_chunk_s": 60,
+    "video_workers": 2,
+    "vl_timeout_s": 60,
+    "asr_timeout_s": 60,
+    "max_concurrent_media": 1,
+    "media_queue_timeout_s": 10,
+}
+
+
+def timestamp(seconds: float) -> str:
+    minutes, seconds = divmod(max(0, int(seconds)), 60)
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def frame_times(duration: float, limit: int) -> list[float]:
+    """均匀覆盖首尾；短视频约每四秒取一帧，长视频不超过 limit 帧。"""
+    count = min(limit, max(1, math.ceil(duration / 4)))
+    end = max(0.0, duration - min(0.5, duration / 2))
+    return [end * i / (count - 1) for i in range(count)] if count > 1 else [0.0]
+
+
+@dataclass
+class VideoAnalysis:
+    duration: float = 0
+    covered: float = 0
+    items: list[tuple[float, str, str]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    def render(self) -> str:
+        notes = "；".join(dict.fromkeys(self.notes))
+        if not self.items:
+            return f"视频暂时未能识别（{notes or '没有可用结果'}），可以请对方描述或重发。"
+        header = (
+            f"视频总长 {timestamp(self.duration)}，分析范围 00:00–{timestamp(self.covered)}。"
+            "画面来自间隔抽帧，不能推断未采样的动作或细节。"
+        )
+        if notes:
+            header += f"注意：{notes}。仅依据已得到的内容回答，不要声称已完整看完。"
+        lines = [f"{label}：{text}" for _, label, text in sorted(self.items)]
+        return header + "\n" + "\n".join(lines)
 
 
 def file_uri_to_path(u: str) -> str:
@@ -72,20 +122,20 @@ async def download_capped(
 async def run_bounded(
     proc: asyncio.subprocess.Process, timeout: float
 ) -> tuple[int, bytes]:
-    """等子进程结束；超时就杀进程并回收，返回 (returncode, stderr)。"""
+    """超时或外层取消都杀进程、排空管道并回收；外层取消继续传播。"""
+    communication = asyncio.create_task(proc.communicate())
     try:
-        _, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        _, err = await asyncio.wait_for(asyncio.shield(communication), timeout=timeout)
         return proc.returncode or 0, err or b""
-    except asyncio.TimeoutError:
-        logger.warning("[face_convert] 子进程超时（%ss），已强制终止", timeout)
+    except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
         try:
             proc.kill()
         except ProcessLookupError:
             pass
-        try:
-            await proc.wait()
-        except Exception:
-            pass
+        await communication
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        logger.warning("[face_convert] 子进程超时（%ss），已强制终止", timeout)
         return -1, b"timeout"
 
 
@@ -93,7 +143,7 @@ async def run_bounded(
     "astrbot_plugin_face_convert",
     "dafeiyu-tools",
     "把 LLM 回复中的 [流泪][doge] 等文字表情自动转换为真实 QQ 表情段",
-    "1.1.1",
+    "1.2.0",
 )
 class FaceConvertPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -110,16 +160,7 @@ class FaceConvertPlugin(Star):
         self.id2name[179] = "doge"
         self.pattern = re.compile(r"\[([^\[\]]{1,8})\]")
         # 轻量配置：同目录 config.json 可覆盖（缺省即默认值）
-        #   键：hedge_eraser / face_cooldown_minutes / max_media_mb /
-        #       video_timeout_s / asr_timeout_s / max_concurrent_media
-        self.cfg = {
-            "hedge_eraser": True,
-            "face_cooldown_minutes": 10,
-            "max_media_mb": 20,
-            "video_timeout_s": 150,
-            "asr_timeout_s": 60,
-            "max_concurrent_media": 2,
-        }
+        self.cfg = DEFAULT_CONFIG.copy()
         try:
             with open(os.path.join(PLUGIN_DIR, "config.json"), encoding="utf-8") as f:
                 loaded = json.load(f)
@@ -127,6 +168,18 @@ class FaceConvertPlugin(Star):
                 self.cfg.update({k: loaded[k] for k in loaded if k in self.cfg})
         except (OSError, ValueError):
             pass
+        # 配置错误不能把队列锁死或产生无上限的媒体任务。
+        for key, low, high in (
+            ("max_media_mb", 1, 200), ("video_timeout_s", 10, 900),
+            ("video_max_duration_s", 1, 300), ("video_max_frames", 1, 32),
+            ("video_audio_chunk_s", 10, 60), ("video_workers", 1, 2),
+            ("vl_timeout_s", 1, 120), ("asr_timeout_s", 1, 120),
+            ("max_concurrent_media", 1, 4), ("media_queue_timeout_s", 1, 60),
+        ):
+            try:
+                self.cfg[key] = min(high, max(low, int(self.cfg[key])))
+            except (TypeError, ValueError, OverflowError):
+                self.cfg[key] = DEFAULT_CONFIG[key]
         self._media_sem = asyncio.Semaphore(
             max(1, int(self.cfg.get("max_concurrent_media", 2)))
         )
@@ -210,50 +263,83 @@ class FaceConvertPlugin(Star):
     def _extract_text(resp) -> str | None:
         """从 DashScope 多模态返回里抽出文本。"""
         try:
-            out = getattr(resp, "output", None)
-            choices = (getattr(out, "choices", None) or []) if out else []
+            def get(obj, key):
+                return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+            out = get(resp, "output")
+            choices = (get(out, "choices") or []) if out else []
             for ch in choices:
-                msg = getattr(ch, "message", None)
-                content = getattr(msg, "content", None) if msg else None
+                msg = get(ch, "message")
+                content = get(msg, "content") if msg else None
+                if isinstance(content, str):
+                    return content.strip() or None
                 if isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict) and item.get("text"):
-                            return str(item["text"]).strip()
+                    texts = [str(item["text"]).strip() for item in content
+                             if isinstance(item, dict) and item.get("text")]
+                    if texts:
+                        return "\n".join(texts)
         except Exception:
             pass
         return None
 
     async def _mm_call(self, model: str, content_items: list, timeout: int = 60) -> str | None:
-        """统一的多模态调用（本地文件自动上传）。"""
-        import dashscope
-        from dashscope.aigc.multimodal_conversation import MultiModalConversation
+        """可取消的 DashScope HTTP 请求，避免超时后 SDK 工作线程继续上传。"""
+        if not self.dashscope_key:
+            return None
+        try:
+            import dashscope
+            base_url = dashscope.base_http_api_url
+        except ImportError:
+            base_url = "https://dashscope.aliyuncs.com/api/v1"
+        payload = {
+            "model": model,
+            "input": {"messages": [{"role": "user", "content": content_items}]},
+            "parameters": {"result_format": "message"},
+        }
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=timeout), trust_env=True
+        ) as session:
+            async with session.post(
+                base_url.rstrip("/") + "/services/aigc/multimodal-generation/generation",
+                headers={"Authorization": f"Bearer {self.dashscope_key}"},
+                json=payload,
+            ) as resp:
+                resp.raise_for_status()
+                return self._extract_text(await resp.json())
 
-        dashscope.api_key = self.dashscope_key
-
-        def _call():
-            return MultiModalConversation.call(
-                model=model,
-                messages=[{"role": "user", "content": content_items}],
-            )
-
-        loop = asyncio.get_running_loop()
-        r = await asyncio.wait_for(loop.run_in_executor(None, _call), timeout=timeout)
-        return self._extract_text(r)
+    @staticmethod
+    def _media_data_url(path: str, mime: str) -> str:
+        # 留出 base64 的 4/3 膨胀空间，编码后低于 ASR 的 10 MB 输入上限。
+        with open(path, "rb") as f:
+            data = f.read(7_000_001)
+        if len(data) > 7_000_000:
+            raise ValueError("单段媒体过大，请先切段或压缩")
+        return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
 
     async def _asr_file(self, path: str) -> str | None:
         """本地音频文件 -> 文字（qwen3-asr-flash）。"""
         return await self._mm_call(
-            "qwen3-asr-flash", [{"audio": f"file:///{path.replace(os.sep, '/')}"}]
+            "qwen3-asr-flash",
+            [{"audio": self._media_data_url(
+                path, "audio/wav" if path.lower().endswith(".wav") else "audio/mpeg"
+            )}],
+            timeout=self.cfg["asr_timeout_s"],
         )
 
-    async def _vl_describe(self, path: str) -> str | None:
-        """本地图片 -> 一句话描述（qwen3-vl-plus）。"""
+    async def _vl_describe(self, frames: list[tuple[float, str]]) -> str | None:
+        """每批至多四帧，带时间戳一起理解，保留场景变化。"""
+        content = []
+        for at, path in frames:
+            content.extend([
+                {"text": f"视频 {timestamp(at)} 的截图："},
+                {"image": self._media_data_url(path, "image/jpeg")},
+            ])
+        content.append({"text": (
+            "这些截图按视频时间排列。请按给定时间戳描述人物、动作、场景变化和关键文字，"
+            "每帧不超过80字。只描述截图能确认的事实，不补写帧间剧情，不要客套。"
+        )})
         return await self._mm_call(
-            "qwen3-vl-plus",
-            [
-                {"image": f"file:///{path.replace(os.sep, '/')}"},
-                {"text": "这是视频的一帧截图。用一句短话（30字内）描述画面内容，直接说内容，不要客套。"},
-            ],
+            "qwen3-vl-plus", content, timeout=self.cfg["vl_timeout_s"],
         )
 
     @staticmethod
@@ -269,26 +355,36 @@ class FaceConvertPlugin(Star):
 
     async def _download_ok(self, url: str, tmpdir: str) -> str | None:
         """下载并做防伪检查（避免下到报错网页）。成功返回本地路径。"""
+        vf = os.path.join(tmpdir, "in.mp4")
+        complete = False
         try:
-            async with aiohttp.ClientSession() as sess:
-                body = await download_capped(
-                    sess,
-                    url,
-                    max_bytes=int(self.cfg.get("max_media_mb", 20)) * 1024 * 1024,
-                    timeout_total=60,
-                )
-            if not body:
+            limit = self.cfg["max_media_mb"] * 1024 * 1024
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=90)) as sess:
+                async with sess.get(url) as resp:
+                    if resp.status != 200 or (resp.content_length or 0) > limit:
+                        return None
+                    size = 0
+                    with open(vf, "wb") as f:
+                        async for chunk in resp.content.iter_chunked(65536):
+                            size += len(chunk)
+                            if size > limit:
+                                return None
+                            f.write(chunk)
+            with open(vf, "rb") as f:
+                head = f.read(12)
+            if size < 1000 or head.lstrip().startswith(b"<"):
                 return None
-            logger.info(f"[face_convert] 下载 {len(body)}B 头部={body[:12]!r}")
-            if len(body) < 1000 or body[:12].lstrip().startswith(b"<"):
-                return None
-            vf = os.path.join(tmpdir, "in.mp4")
-            with open(vf, "wb") as f:
-                f.write(body)
+            complete = True
             return vf
         except Exception as e:
             logger.info(f"[face_convert] 下载失败: {str(e)[:80]}")
             return None
+        finally:
+            if not complete:
+                try:
+                    os.remove(vf)
+                except OSError:
+                    pass
 
     async def _resolve_video(self, event: AstrMessageEvent, comp, tmpdir: str) -> str | None:
         """把视频字段解析成本地文件（多候选兜底：url -> 路径 -> 凭单号找 NapCat 要）。"""
@@ -334,68 +430,132 @@ class FaceConvertPlugin(Star):
                     logger.info(f"[face_convert] get_file({cand[:40]}) 失败: {str(e)[:80]}")
         return None
 
-    async def _process_video(self, event: AstrMessageEvent, comp) -> str:
-        """视频 -> 画面描述 + 声音转写。"""
-        tmpdir = None
-        try:
-            tmpdir = tempfile.mkdtemp(prefix="vid_")
-            video = await self._resolve_video(event, comp, tmpdir)
-            if not video:
-                logger.info("[face_convert] 视频解析失败：所有候选都没提到货")
-                return "（没看清）"
-            ff = self._ffmpeg_exe()
-            if not ff:
-                return "（没看清）"
-            # 抽帧：前 16 秒、每 4 秒一帧，最多 4 帧
-            proc = await asyncio.create_subprocess_exec(
-                ff, "-y", "-i", video, "-t", "16", "-vf", "fps=1/4",
-                "-frames:v", "4", "-q:v", "3",
-                os.path.join(tmpdir, "f_%02d.jpg"),
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-            )
-            rc, err = await run_bounded(proc, 60)
-            if rc != 0:
-                logger.warning(f"[face_convert] 抽帧失败 rc={rc}: {err[-260:].decode('utf-8', 'ignore')}")
-            # 音轨：前 60 秒转 16k 单声道 mp3
-            audio = os.path.join(tmpdir, "a.mp3")
-            proc = await asyncio.create_subprocess_exec(
-                ff, "-y", "-i", video, "-vn", "-ac", "1", "-ar", "16000", "-t", "60",
-                audio,
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-            )
-            rc, err = await run_bounded(proc, 60)
-            if rc != 0:
-                logger.warning(f"[face_convert] 抽音轨失败 rc={rc}: {err[-260:].decode('utf-8', 'ignore')}")
-            # 逐帧看图（最多留 3 条不同描述）
-            descs = []
-            for i in range(1, 5):
-                fp = os.path.join(tmpdir, f"f_{i:02d}.jpg")
-                if not os.path.exists(fp):
-                    break
-                d = await self._vl_describe(fp)
-                if d and len(d) > 1 and d not in descs:
-                    descs.append(d)
-                if len(descs) >= 3:
-                    break
-            # 听声音
-            said = None
-            if os.path.exists(audio) and os.path.getsize(audio) > 2000:
-                said = await self._asr_file(audio)
-            logger.info(f"[face_convert] 视频解读: 帧描述={len(descs)}条, 声音转写={'有' if said else '无'}")
-            parts = []
-            if descs:
-                parts.append("画面是：" + "；".join(descs))
-            if said:
-                parts.append("声音里说的是：" + said)
-            return "；".join(parts) if parts else "（没看清也没听清）"
-        except Exception as e:
-            logger.warning(f"[face_convert] 视频处理失败: {str(e)[:150]}")
-            return "（没看清）"
-        finally:
-            if tmpdir:
-                import shutil as _sh
+    async def _run_ffmpeg(self, ff: str, *args: str, timeout: float = 60):
+        proc = await asyncio.create_subprocess_exec(
+            ff, "-hide_banner", "-nostdin", *args,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+        )
+        return await run_bounded(proc, timeout)
 
-                _sh.rmtree(tmpdir, ignore_errors=True)
+    async def _probe_video(self, ff: str, video: str) -> tuple[float, bool]:
+        # imageio-ffmpeg 只附带 ffmpeg，读头信息避免新增 ffprobe 部署要求。
+        _, err = await self._run_ffmpeg(ff, "-i", video, timeout=15)
+        info = err.decode("utf-8", "ignore")
+        match = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", info)
+        if not match:
+            raise ValueError("无法读取视频时长")
+        hours, minutes, seconds = map(float, match.groups())
+        duration = hours * 3600 + minutes * 60 + seconds
+        if not math.isfinite(duration) or duration <= 0:
+            raise ValueError("视频时长无效")
+        return duration, bool(re.search(r"Stream #[^\r\n]*Audio:", info))
+
+    async def _analyze_video(self, event, comp, tmpdir: str, result: VideoAnalysis):
+        video = await self._resolve_video(event, comp, tmpdir)
+        if not video:
+            result.notes.append("下载失败或文件超过大小限制")
+            return
+        # NapCat 共享的本地文件也执行大小检查，但只清理本插件创建的文件。
+        if os.path.getsize(video) > self.cfg["max_media_mb"] * 1024 * 1024:
+            result.notes.append("文件超过大小限制")
+            return
+        ff = self._ffmpeg_exe()
+        if not ff:
+            result.notes.append("服务器缺少 ffmpeg")
+            return
+        result.duration, has_audio = await self._probe_video(ff, video)
+        result.covered = min(result.duration, self.cfg["video_max_duration_s"])
+        if result.duration > result.covered:
+            result.notes.append(f"只分析前 {timestamp(result.covered)}，后续内容未处理")
+        if not has_audio:
+            result.notes.append("视频没有音轨")
+
+        times = frame_times(result.covered, self.cfg["video_max_frames"])
+        # 帧按四张一批；声音按段，队列按视频时间交错，避免只处理画面或声音。
+        jobs = [(batch[0], "画面", batch) for i in range(0, len(times), 4)
+                if (batch := times[i:i + 4])]
+        if has_audio:
+            step = self.cfg["video_audio_chunk_s"]
+            jobs.extend((float(start), "声音", [min(step, result.covered - start)])
+                        for start in range(0, math.ceil(result.covered), step))
+        queue = asyncio.Queue()
+        for job in sorted(jobs):
+            queue.put_nowait(job)
+
+        async def worker():
+            while not queue.empty():
+                start, kind, payload = queue.get_nowait()
+                label = f"{timestamp(start)} {kind}"
+                try:
+                    if kind == "画面":
+                        frames = []
+                        for at in payload:
+                            path = os.path.join(tmpdir, f"f_{at:.3f}.jpg")
+                            rc, _ = await self._run_ffmpeg(
+                                ff, "-loglevel", "error", "-y", "-ss", str(at),
+                                "-threads", "1", "-i", video, "-map", "0:v:0",
+                                "-frames:v", "1", "-an", "-filter_threads", "1",
+                                "-vf", "scale='min(960,iw)':'min(960,ih)':force_original_aspect_ratio=decrease",
+                                "-q:v", "4", "-threads", "1", path,
+                            )
+                            if rc == 0 and os.path.exists(path) and os.path.getsize(path):
+                                frames.append((at, path))
+                            else:
+                                result.notes.append(f"{timestamp(at)} 抽帧失败")
+                        label = f"{timestamp(start)}–{timestamp(payload[-1])} 画面"
+                        text = await self._vl_describe(frames) if frames else None
+                    else:
+                        length = payload[0]
+                        label = f"{timestamp(start)}–{timestamp(start + length)} 声音"
+                        path = os.path.join(tmpdir, f"a_{start:.3f}.wav")
+                        rc, _ = await self._run_ffmpeg(
+                            ff, "-loglevel", "error", "-y", "-ss", str(start),
+                            "-threads", "1", "-i", video, "-map", "0:a:0", "-vn",
+                            "-ac", "1", "-ar", "16000", "-t", str(length),
+                            "-c:a", "pcm_s16le", path,
+                        )
+                        text = (await self._asr_file(path)
+                                if rc == 0 and os.path.exists(path) and os.path.getsize(path) > 44
+                                else None)
+                    if text:
+                        result.items.append((start, label, text))
+                    else:
+                        result.notes.append(f"{label}没有识别到内容")
+                except Exception as e:
+                    logger.warning(f"[face_convert] {label}失败: {type(e).__name__}")
+                    result.notes.append(f"{label}识别失败，其他结果保留")
+                finally:
+                    queue.task_done()
+
+        workers = [asyncio.create_task(worker()) for _ in range(self.cfg["video_workers"])]
+        try:
+            await asyncio.gather(*workers)
+        finally:
+            # 收回所有任务之后才能删除临时文件，不能让 ffmpeg / HTTP 留在后台。
+            for task in workers:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
+
+    async def _process_video(self, event: AstrMessageEvent, comp) -> VideoAnalysis:
+        """最长五分钟，超时/单段失败仍返回已识别结果；外部取消继续传播。"""
+        result = VideoAnalysis()
+        if not self.dashscope_key:
+            result.notes.append("未配置 DashScope key")
+            return result
+        with tempfile.TemporaryDirectory(prefix="vid_") as tmpdir:
+            try:
+                await asyncio.wait_for(
+                    self._analyze_video(event, comp, tmpdir, result),
+                    timeout=self.cfg["video_timeout_s"],
+                )
+            except asyncio.TimeoutError:
+                result.notes.append("处理超时，未完成部分已停止，已识别内容保留")
+            except Exception as e:
+                logger.warning(f"[face_convert] 视频处理失败: {type(e).__name__}")
+                result.notes.append("视频解析失败，已识别内容保留")
+        logger.info(f"[face_convert] 视频解读: {len(result.items)}段结果，{len(result.notes)}条提示")
+        return result
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def inbound_face_to_text(self, event: AstrMessageEvent):
@@ -436,22 +596,24 @@ class FaceConvertPlugin(Star):
                 else "[对方发来一条语音（你没听清）]"
             )
         if vids:
-            desc = ""
+            analysis = VideoAnalysis()
+            acquired = False
             try:
-                async with self._media_sem:
-                    desc = await asyncio.wait_for(
-                        self._process_video(event, vids[0]),
-                        timeout=float(self.cfg.get("video_timeout_s", 150)),
-                    )
+                await asyncio.wait_for(
+                    self._media_sem.acquire(), timeout=self.cfg["media_queue_timeout_s"]
+                )
+                acquired = True
+                analysis = await self._process_video(event, vids[0])
             except asyncio.TimeoutError:
-                logger.warning("[face_convert] 视频处理超时（外层），降级处理")
+                analysis.notes.append("正在处理其他媒体，请稍后再试")
             except Exception as e:
-                logger.warning(f"[face_convert] 视频处理异常: {str(e)[:120]}")
-            # 只有真描述才说"看得很清楚"；失败/超时/没看清 -> 如实降级
-            if desc and "没看清" not in desc:
-                names.append(f"[对方发来的视频，你看得很清楚：{desc}]")
-            else:
-                names.append("[对方发来的视频（你没看清，可以请对方描述一下）]")
+                logger.warning(f"[face_convert] 视频处理异常: {type(e).__name__}")
+                analysis.notes.append("视频处理异常")
+            finally:
+                if acquired:
+                    self._media_sem.release()
+            event.set_extra("_fy_video_incomplete", bool(analysis.notes or not analysis.items))
+            names.append(f"[对方发来的视频，识别结果：{analysis.render()}]")
         if names:
             extra = " ".join(names)
             if extra not in (event.message_str or ""):
@@ -556,6 +718,7 @@ class FaceConvertPlugin(Star):
             hedged = (
                 self.HEDGE_RE.sub("", cleaned)
                 if self.cfg.get("hedge_eraser", True)
+                and not event.get_extra("_fy_video_incomplete")
                 and not re.search(_request_words, cleaned)
                 else cleaned
             )

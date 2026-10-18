@@ -10,8 +10,8 @@
 
 | 感官 | 能力 | 实现 |
 |---|---|---|
-| 👁️ 看 | 图片 / 表情包 / 视频（目前只能读前16秒的画面） | qwen3-vl 转述 + ffmpeg 抽帧 |
-| 🎧 听 | 语音消息 / 视频音轨（目前只能捕捉60秒的音频）| NapCat 转码 + qwen3-asr-flash |
+| 👁️ 看 | 图片 / 表情包 / 视频（默认覆盖前 5 分钟，最多 16 帧） | qwen3-vl 转述 + ffmpeg 抽帧 |
+| 🎧 听 | 语音消息 / 视频音轨（默认前 5 分钟，每 60 秒一段）| NapCat 转码 + qwen3-asr-flash |
 | 🔊 说 | 语音条（含自定义音色） | 百炼音色复刻 + qwen-audio-3.1-tts-flash |
 | 😀 表情 | 真 QQ 表情（326 张脸） | 自研插件把 `[旺柴]` 变成真实表情段 |
 | 🧠 记 | 长期记忆 | livingmemory + bge-m3 嵌入（本地 Ollama / 硅基流动托管） |
@@ -66,14 +66,15 @@ assets/voice-demo/                     ← 音色样本与复刻链路说明
 - 纯表情消息的文本是空的，会被上游当"空消息"跳过 → 翻译成 `[旺柴]` 文本
 - 图片 / 表情包 → 补上"[对方发来一张图片]"，交给 AstrBot 的图片转述
 - 语音 → NapCat 转 mp3 → qwen3-asr-flash 听写 → 文本进上下文
-- 视频 → 本地下载 → ffmpeg 抽帧 + 抽音轨 → qwen3-vl 逐帧描述 + qwen3-asr 听声
+- 视频 → 本地下载 → ffmpeg 抽帧 + 抽音轨 → qwen3-vl 按时间分批看图 + qwen3-asr 分段听声；超时保留已有结果
 - 身份标记 → 群聊消息自动带上 `[昵称(QQ号)]`（管理员标「主人」）、访客私聊标「主人的朋友」——
   让她分得清谁在说话；标记只进她的上下文，**对方看不到**；群里只喊名字没内容时，自动补
   「（喊了你一声）」的回应由头
 
 **可调参数（可选）**：插件目录下放 `config.json` 可覆盖 `hedge_eraser`（嘴硬橡皮擦开关）、
-`face_cooldown_minutes`、`max_media_mb`、`video_timeout_s`、`asr_timeout_s`、`max_concurrent_media`；
-回归测试：`python tests/test_face_rules.py`。
+`face_cooldown_minutes` 和媒体处理参数。**3～5 分钟视频已作为默认配置**，
+旧 `config.json` 会覆盖新默认值，升级时请按 [视频识别说明](docs/视频识别.md) 合并更新。
+回归测试：`python tests/test_face_rules.py`、`python tests/test_video_processing.py`。
 
 ## 🧩 推荐搭配（可选的"花活"插件）
 
