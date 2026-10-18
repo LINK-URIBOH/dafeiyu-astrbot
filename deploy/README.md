@@ -47,3 +47,40 @@ QQ 用户 ⇄ 腾讯服务器 ⇄ NapCat(Docker) ⇄ WebSocket(6199) ⇄ AstrBot
 - **嵌入别重跑**：同款 bge-m3 的向量互相兼容，不需要重建索引
   （验证法：取一条旧向量与云端新嵌入算余弦，≈1 即可）
 - `data/` 里可能混着旧机的 `site-packages` 残留，可忽略
+
+## 版本与升级
+
+- 本套件钉死已验证组合：**AstrBot `soulter/astrbot:v4.29.0`** +
+  **NapCat 镜像 `mlikiowa/napcat-docker:v4.18.37`**（`Dockerfile` 与 `compose.yaml` 两处）。
+  升级时：改两处 tag → `docker compose build && docker compose up -d` →
+  **重新对照 `patches/` 的补丁在新版是否仍适用**（补丁是核心源码的修改版，版本不匹配行为会变）。
+- 只要"基础聊天"（不玩百炼语音 / 不挂 TTS 补丁）：删掉 compose 里两条 `patches/...` 的
+  bind-mount 即可，其余照常。补丁文件随仓库提供（`patches/`，附来源与 AGPL-3.0 说明）。
+
+## 安全默认
+
+- 模板默认把 AstrBot 面板（6185）与 NapCat WebUI（6099）都绑在 **127.0.0.1**，远程走 SSH 隧道：
+  `ssh -L 6185:127.0.0.1:6185 -L 6099:127.0.0.1:6099 root@<服务器>`，
+  浏览器开 `http://127.0.0.1:6185`；扫码登录 NapCat 时同样走隧道打开 `http://127.0.0.1:6099`。
+- 确需公网直连：改回 `"6185:6185"` / `"6099:6099"` 并配置安全组，同时务必改强密码。
+
+## 备份与恢复
+
+`backup.sh` 的行为：
+- 备份前**短暂停掉 astrbot 容器**（SQLite 在写入中直接打包可能拿到不一致快照），打完立刻拉起；
+- 先写临时包、成功后才改正式名；失败写 `backups/backup.log` 且非 0 退出；
+- 备份内容：`astrbot/data` + `napcat/config` + `compose.yaml` + `Dockerfile` + `patches/`（恢复所需全带）。
+
+恢复：`docker compose stop` → 在 `/opt/dafeiyu/` 解包（`tar -xzf ... -C /opt/dafeiyu`）→
+`docker compose up -d`；NapCat 起好后如未登录，按二维码重扫。
+
+## 插件运行参数（可选）
+
+在 `astrbot/data/plugins/astrbot_plugin_face_convert/` 下放 `config.json` 可覆盖默认值：
+
+```json
+{"hedge_eraser": true, "face_cooldown_minutes": 10, "max_media_mb": 20,
+ "video_timeout_s": 150, "asr_timeout_s": 60, "max_concurrent_media": 2}
+```
+
+`hedge_eraser=false` 可整体关闭"嘴硬橡皮擦"；含"重发/再说一遍"等请求词的回复本来就永不误删。

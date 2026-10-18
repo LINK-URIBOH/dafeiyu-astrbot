@@ -13,6 +13,8 @@ import re
 import tempfile
 import time
 
+import aiohttp
+
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
@@ -23,11 +25,75 @@ PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 MAX_REPLACE = 8  # 单条消息最多替换几个表情，防刷屏
 
 
+def file_uri_to_path(u: str) -> str:
+    """把 file:// URI 转成本机路径；http(s) 原样返回。
+
+    兼容三类（Windows / Linux / 裸路径）：
+      file:///C:/x/y  -> C:/x/y        （Windows：去掉前导斜杠）
+      file:///tmp/y   -> /tmp/y        （Linux：保留开头的斜杠！）
+      /tmp/y          -> /tmp/y
+    """
+    s = str(u).strip()
+    if s.lower().startswith(("http://", "https://")):
+        return s
+    if s.lower().startswith("file://"):
+        s = s[7:]  # 去掉 "file://"（三个斜杠时这里留下路径自带的那个 /）
+        if re.match(r"^/[A-Za-z]:", s):  # Windows 的 /C:/... -> C:/...
+            s = s[1:]
+        return s
+    return s
+
+
+async def download_capped(
+    session: "aiohttp.ClientSession", url: str, max_bytes: int, timeout_total: int
+) -> bytes | None:
+    """流式下载并限制大小；超限/超时/非 200 返回 None（调用方走降级分支）。"""
+    try:
+        async with session.get(
+            url, timeout=aiohttp.ClientTimeout(total=timeout_total)
+        ) as r:
+            if r.status != 200:
+                return None
+            chunks: list[bytes] = []
+            size = 0
+            async for chunk in r.content.iter_chunked(65536):
+                size += len(chunk)
+                if size > max_bytes:
+                    logger.warning(
+                        "[face_convert] 媒体超过大小上限 %d 字节，已放弃下载", max_bytes
+                    )
+                    return None
+                chunks.append(chunk)
+            return b"".join(chunks)
+    except (asyncio.TimeoutError, OSError, aiohttp.ClientError):
+        return None
+
+
+async def run_bounded(
+    proc: asyncio.subprocess.Process, timeout: float
+) -> tuple[int, bytes]:
+    """等子进程结束；超时就杀进程并回收，返回 (returncode, stderr)。"""
+    try:
+        _, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return proc.returncode or 0, err or b""
+    except asyncio.TimeoutError:
+        logger.warning("[face_convert] 子进程超时（%ss），已强制终止", timeout)
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await proc.wait()
+        except Exception:
+            pass
+        return -1, b"timeout"
+
+
 @register(
     "astrbot_plugin_face_convert",
     "dafeiyu-tools",
     "把 LLM 回复中的 [流泪][doge] 等文字表情自动转换为真实 QQ 表情段",
-    "1.1.0",
+    "1.1.1",
 )
 class FaceConvertPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -43,8 +109,30 @@ class FaceConvertPlugin(Star):
         self.id2name[277] = "旺柴"
         self.id2name[179] = "doge"
         self.pattern = re.compile(r"\[([^\[\]]{1,8})\]")
-        # 表情冷却：记录她最近用过哪些脸的 id（治"又发好多狗头"）
-        self._recent_faces: list[int] = []
+        # 轻量配置：同目录 config.json 可覆盖（缺省即默认值）
+        #   键：hedge_eraser / face_cooldown_minutes / max_media_mb /
+        #       video_timeout_s / asr_timeout_s / max_concurrent_media
+        self.cfg = {
+            "hedge_eraser": True,
+            "face_cooldown_minutes": 10,
+            "max_media_mb": 20,
+            "video_timeout_s": 150,
+            "asr_timeout_s": 60,
+            "max_concurrent_media": 2,
+        }
+        try:
+            with open(os.path.join(PLUGIN_DIR, "config.json"), encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                self.cfg.update({k: loaded[k] for k in loaded if k in self.cfg})
+        except (OSError, ValueError):
+            pass
+        self._media_sem = asyncio.Semaphore(
+            max(1, int(self.cfg.get("max_concurrent_media", 2)))
+        )
+        # 表情冷却：按会话记录她最近用过的脸 [(脸id, 时间戳)]（治"又发好多狗头"；
+        # 早期版本是全局共享列表，会跨群串扰，已改为按会话隔离 + 时间过期）
+        self._face_history: dict[str, list[tuple[int, float]]] = {}
         # DashScope key（用于语音转写）+ 管理员名单（群聊里标成「主人」）
         self.dashscope_key = ""
         self.admins: list[str] = []
@@ -85,19 +173,35 @@ class FaceConvertPlugin(Star):
             if not mp3:
                 return None
             # 2) 解析到本地文件
-            path = str(mp3).replace("file:///", "").replace("file://", "")
+            path = file_uri_to_path(mp3)
+            tmp_owned = False  # 自己下载的临时文件，用完负责清理
             if path.startswith("http"):
-                import aiohttp
                 async with aiohttp.ClientSession() as sess:
-                    async with sess.get(path, timeout=aiohttp.ClientTimeout(total=30)) as r:
-                        body = await r.read()
-                tmp = os.path.join(tempfile.gettempdir(), f"asr_{int(time.time()*1000)}.mp3")
+                    body = await download_capped(
+                        sess,
+                        path,
+                        max_bytes=int(self.cfg.get("max_media_mb", 20)) * 1024 * 1024,
+                        timeout_total=30,
+                    )
+                if not body:
+                    return None
+                tmp = os.path.join(
+                    tempfile.gettempdir(), f"asr_{int(time.time() * 1000)}.mp3"
+                )
                 with open(tmp, "wb") as f:
                     f.write(body)
+                tmp_owned = True
             else:
                 tmp = path
             # 3) 转写
-            return await self._asr_file(tmp)
+            try:
+                return await self._asr_file(tmp)
+            finally:
+                if tmp_owned:
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
         except Exception as e:
             logger.warning(f"[face_convert] 语音转写失败: {str(e)[:150]}")
             return None
@@ -166,11 +270,15 @@ class FaceConvertPlugin(Star):
     async def _download_ok(self, url: str, tmpdir: str) -> str | None:
         """下载并做防伪检查（避免下到报错网页）。成功返回本地路径。"""
         try:
-            import aiohttp
-
             async with aiohttp.ClientSession() as sess:
-                async with sess.get(url, timeout=aiohttp.ClientTimeout(total=60)) as r:
-                    body = await r.read()
+                body = await download_capped(
+                    sess,
+                    url,
+                    max_bytes=int(self.cfg.get("max_media_mb", 20)) * 1024 * 1024,
+                    timeout_total=60,
+                )
+            if not body:
+                return None
             logger.info(f"[face_convert] 下载 {len(body)}B 头部={body[:12]!r}")
             if len(body) < 1000 or body[:12].lstrip().startswith(b"<"):
                 return None
@@ -196,7 +304,7 @@ class FaceConvertPlugin(Star):
             if f and str(f).strip() and str(f).strip() not in cands:
                 cands.append(str(f).strip())
         for cand in cands:
-            p = cand.replace("file:///", "").replace("file://", "")
+            p = file_uri_to_path(cand)
             if p.startswith("http"):
                 vf = await self._download_ok(p, tmpdir)
                 if vf:
@@ -214,7 +322,7 @@ class FaceConvertPlugin(Star):
                     if not rp and isinstance(resp, dict):
                         rp = resp.get("file") or resp.get("url")
                     if rp:
-                        rp = str(rp).replace("file:///", "").replace("file://", "")
+                        rp = file_uri_to_path(rp)
                         logger.info(f"[face_convert] NapCat 提货: {rp[:90]}")
                         if rp.startswith("http"):
                             vf = await self._download_ok(rp, tmpdir)
@@ -245,9 +353,9 @@ class FaceConvertPlugin(Star):
                 os.path.join(tmpdir, "f_%02d.jpg"),
                 stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
             )
-            _, err = await asyncio.wait_for(proc.communicate(), timeout=60)
-            if proc.returncode != 0:
-                logger.warning(f"[face_convert] 抽帧失败 rc={proc.returncode}: {err[-260:].decode('utf-8', 'ignore')}")
+            rc, err = await run_bounded(proc, 60)
+            if rc != 0:
+                logger.warning(f"[face_convert] 抽帧失败 rc={rc}: {err[-260:].decode('utf-8', 'ignore')}")
             # 音轨：前 60 秒转 16k 单声道 mp3
             audio = os.path.join(tmpdir, "a.mp3")
             proc = await asyncio.create_subprocess_exec(
@@ -255,9 +363,9 @@ class FaceConvertPlugin(Star):
                 audio,
                 stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
             )
-            _, err = await asyncio.wait_for(proc.communicate(), timeout=60)
-            if proc.returncode != 0:
-                logger.warning(f"[face_convert] 抽音轨失败 rc={proc.returncode}: {err[-260:].decode('utf-8', 'ignore')}")
+            rc, err = await run_bounded(proc, 60)
+            if rc != 0:
+                logger.warning(f"[face_convert] 抽音轨失败 rc={rc}: {err[-260:].decode('utf-8', 'ignore')}")
             # 逐帧看图（最多留 3 条不同描述）
             descs = []
             for i in range(1, 5):
@@ -321,14 +429,29 @@ class FaceConvertPlugin(Star):
         for _ in range(min(img_count, 3)):
             names.append("[对方发来一张图片或表情包]")
         if recs:
-            txt = await self._transcribe_voice(event, recs[0])
+            async with self._media_sem:
+                txt = await self._transcribe_voice(event, recs[0])
             names.append(
                 f"[对方发来一条语音，你清楚地听到他说：{txt}]" if txt
                 else "[对方发来一条语音（你没听清）]"
             )
         if vids:
-            desc = await asyncio.wait_for(self._process_video(event, vids[0]), timeout=150)
-            names.append(f"[对方发来的视频，你看得很清楚：{desc}]")
+            desc = ""
+            try:
+                async with self._media_sem:
+                    desc = await asyncio.wait_for(
+                        self._process_video(event, vids[0]),
+                        timeout=float(self.cfg.get("video_timeout_s", 150)),
+                    )
+            except asyncio.TimeoutError:
+                logger.warning("[face_convert] 视频处理超时（外层），降级处理")
+            except Exception as e:
+                logger.warning(f"[face_convert] 视频处理异常: {str(e)[:120]}")
+            # 只有真描述才说"看得很清楚"；失败/超时/没看清 -> 如实降级
+            if desc and "没看清" not in desc:
+                names.append(f"[对方发来的视频，你看得很清楚：{desc}]")
+            else:
+                names.append("[对方发来的视频（你没看清，可以请对方描述一下）]")
         if names:
             extra = " ".join(names)
             if extra not in (event.message_str or ""):
@@ -373,7 +496,7 @@ class FaceConvertPlugin(Star):
     SCRUB_RE = re.compile(r"[（(]{2}.*?[）)]{2}", re.DOTALL)
     # 嘴硬橡皮擦：擦掉"看不清/模模糊糊/隐约"类小尾巴（上下文回声病，人格治不动）
     # 边界字符集含半角标点/引号/空白，防咬边
-    _HEDGE_STOP = r",\.。！？!?;；、：:~…“”\"（）()【】\[\]\s"
+    _HEDGE_STOP = r",，\.。！？!?;；、：:~…“”\"‘’（）()【】\[\]\s"
     HEDGE_RE = re.compile(
         f"[^{_HEDGE_STOP}]{{0,14}}"
         f"(?:看不太清|看不太清楚|看不清|模模糊糊|糊糊的|没看清也没听清|没听清|听不太清|听不清楚|听不清"
@@ -426,7 +549,16 @@ class FaceConvertPlugin(Star):
                 cleaned = self.SCRUB_RE.sub("", cleaned)
                 if cleaned != text:
                     logger.info("[face_convert] 已撕掉草稿箱内容")
-            hedged = self.HEDGE_RE.sub("", cleaned)
+            # 嘴硬橡皮擦：只擦"回声型小尾巴"。真实识别失败时她会请求重发
+            #（"没听清，请再说一次"）——含请求词的整条放行，绝不误删；
+            # config.json 里 hedge_eraser=false 可整体关闭。
+            _request_words = r"重发|再发|再说|再听|再看|发一遍|发一张|换一张|重新发|发个"
+            hedged = (
+                self.HEDGE_RE.sub("", cleaned)
+                if self.cfg.get("hedge_eraser", True)
+                and not re.search(_request_words, cleaned)
+                else cleaned
+            )
             if hedged != cleaned:
                 cleaned = hedged
                 logger.info("[face_convert] 已擦掉嘴硬小尾巴")
@@ -526,7 +658,13 @@ class FaceConvertPlugin(Star):
                         stripped += 1
                     continue
                 # 表情冷却：同一张脸最近 2 次用过就消失；每条最多 2 张
-                if per_msg >= 2 or fid in self._recent_faces[-2:]:
+                # （按会话隔离 + 时间过期，避免 A 群用过的脸把 B 群也冷却掉）
+                hist = self._face_history.setdefault(event.unified_msg_origin, [])
+                _cutoff = time.time() - float(
+                    self.cfg.get("face_cooldown_minutes", 10)
+                ) * 60
+                hist[:] = [t for t in hist if t[1] >= _cutoff]
+                if per_msg >= 2 or fid in [t[0] for t in hist[-2:]]:
                     if m.start() > pos:
                         new_chain.append(Plain(text[pos : m.start()]))
                     pos = m.end()
@@ -535,8 +673,8 @@ class FaceConvertPlugin(Star):
                 if m.start() > pos:
                     new_chain.append(Plain(text[pos : m.start()]))
                 new_chain.append(Face(id=fid))
-                self._recent_faces.append(fid)
-                self._recent_faces = self._recent_faces[-8:]
+                hist.append((fid, time.time()))
+                del hist[:-8]
                 per_msg += 1
                 pos = m.end()
                 changed += 1

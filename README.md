@@ -37,6 +37,8 @@ docs/知识库-热梗词典示例.md            ← 现成的热梗词典（含�
 docs/踩坑合集.md                       ← ⭐ 最有价值的部分：所有坑与解法
 deploy/                                ← ☁️ 云上安家套件（Docker Compose / 备份 / 嵌入切换）
 CHANGELOG.md                           ← 更新日志
+deploy/                                ← 云服务器部署套件（Docker Compose + 补丁 + 备份 + 运维笔记）
+tests/                                 ← 回归测试（插件文本规则 / 路径解析）
 assets/avatars/                        ← 头像素材（12 张，含授权署名）
 assets/voice-demo/                     ← 音色样本与复刻链路说明
 ```
@@ -68,6 +70,10 @@ assets/voice-demo/                     ← 音色样本与复刻链路说明
 - 身份标记 → 群聊消息自动带上 `[昵称(QQ号)]`（管理员标「主人」）、访客私聊标「主人的朋友」——
   让她分得清谁在说话；标记只进她的上下文，**对方看不到**；群里只喊名字没内容时，自动补
   「（喊了你一声）」的回应由头
+
+**可调参数（可选）**：插件目录下放 `config.json` 可覆盖 `hedge_eraser`（嘴硬橡皮擦开关）、
+`face_cooldown_minutes`、`max_media_mb`、`video_timeout_s`、`asr_timeout_s`、`max_concurrent_media`；
+回归测试：`python tests/test_face_rules.py`。
 
 ## 🧩 推荐搭配（可选的"花活"插件）
 

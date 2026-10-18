@@ -8,7 +8,10 @@ services:
     container_name: astrbot
     restart: unless-stopped
     ports:
-      - "6185:6185"            # AstrBot 面板
+      # 默认只绑本机，远程访问走 SSH 隧道：
+      #   ssh -L 6185:127.0.0.1:6185 root@<服务器>   然后开 http://127.0.0.1:6185
+      # 确需公网直连再改回 "6185:6185"（并配安全组、改强密码）
+      - "127.0.0.1:6185:6185"  # AstrBot 面板
     volumes:
       - /opt/dafeiyu/astrbot/data:/AstrBot/data
       # 核心补丁用 bind-mount 接入：升级镜像不会覆盖（见 docs/踩坑合集）
@@ -18,11 +21,12 @@ services:
       - TZ=Asia/Shanghai
 
   napcat:
-    image: mlikiowa/napcat-docker:latest
+    # 钉版：已验证组合（桌面端 NapCat 4.18.38；Docker 镜像发布滞后一版，取 v4.18.37）
+    image: mlikiowa/napcat-docker:v4.18.37
     container_name: napcat
     restart: unless-stopped
     ports:
-      - "6099:6099"            # NapCat WebUI（扫码 / 管理）
+      - "127.0.0.1:6099:6099"  # NapCat WebUI（默认仅本机；SSH 隧道访问，公网改法同上）
     volumes:
       - /opt/dafeiyu/napcat/config:/app/napcat/config
       - /opt/dafeiyu/napcat/qq:/app/.config/QQ
