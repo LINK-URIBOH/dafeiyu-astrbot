@@ -69,7 +69,9 @@ QQ 用户 ⇄ 腾讯服务器 ⇄ NapCat(Docker) ⇄ WebSocket(6199) ⇄ AstrBot
 `backup.sh` 的行为：
 - 备份前**短暂停掉 astrbot 容器**（SQLite 在写入中直接打包可能拿到不一致快照），打完立刻拉起；
 - 先写临时包、成功后才改正式名；失败写 `backups/backup.log` 且非 0 退出；
-- 备份内容：`astrbot/data` + `napcat/config` + `compose.yaml` + `Dockerfile` + `patches/`（恢复所需全带）。
+- 备份内容：`astrbot/data` + `napcat/config` + `compose.yaml` + `Dockerfile` + `patches/` + `heal_ws.py`（恢复所需全带）；
+- **拉起后自动跑 `heal_ws.py`** 自愈 WebSocket（实测 AstrBot 重启后 NapCat 的 WS 不会自己回来）；
+  平时若发现"发消息没反应"，手动跑一次 `python3 /opt/dafeiyu/heal_ws.py` 即可（不重启 QQ、不扫码）。
 
 恢复：`docker compose stop` → 在 `/opt/dafeiyu/` 解包（`tar -xzf ... -C /opt/dafeiyu`）→
 `docker compose up -d`；NapCat 起好后如未登录，按二维码重扫。
