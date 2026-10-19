@@ -48,7 +48,7 @@ assets/voice-demo/                     ← 音色样本与复刻链路说明
 1. 按 `docs/部署指南.md` 搭好 AstrBot + NapCat + QQ 小号
 2. 把 `plugin/astrbot_plugin_face_convert/` 放进 AstrBot 的 `data/plugins/`
    （插件会自动读取你 AstrBot 配置里的 DashScope key，用于语音/视频理解）
-3. 在 AstrBot 里新建人格：粘贴 `persona/大肥鱼-人格.md` 的**第一节正文 + 收尾块 + 群聊/朋友守则**（详见导入指南）
+3. 在 AstrBot 里新建人格：把 `persona/大肥鱼-人格.md` 的正文**整段粘贴**（v2 单块提示词，无需拼接；详见导入指南）
 4. 想要语音条 / 记忆 / 自定义音色？照 `docs/导入指南.md` 继续
 5. 重启，开聊 🎉
 6. 想 7×24 挂云端？看 `deploy/README.md`（Docker 一键编排，已实弹演练）
