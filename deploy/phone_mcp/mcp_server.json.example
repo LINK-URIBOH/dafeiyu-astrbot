@@ -1,0 +1,9 @@
+{
+    "mcpServers": {
+        "phone-mcp": {
+            "url": "http://172.18.0.1:8009/Phone",
+            "transport": "sse",
+            "active": true
+        }
+    }
+}

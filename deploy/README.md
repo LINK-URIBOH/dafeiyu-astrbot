@@ -90,3 +90,10 @@ QQ 用户 ⇄ 腾讯服务器 ⇄ NapCat(Docker) ⇄ WebSocket(6199) ⇄ AstrBot
 `hedge_eraser=false` 可整体关闭"嘴硬橡皮擦"；含"重发/再说一遍"等请求词的回复本来就永不误删。
 
 旧配置不会自动改写，请合并更新后重载插件或重启 AstrBot。详见 [3～5 分钟视频识别](../docs/视频识别.md)。
+
+## 手机控制（PhoneMCP + 本地模拟器）
+
+`phone_mcp/` 提供“云端 AstrBot 操作本地雷电模拟器”的完整接线：
+PhoneMCP 跑在 Windows、ADB 只连本机、SSH 反向隧道回云端，再由
+`phone_mcp_proxy.py` 把 Docker 网关桥接到隧道入口。包含源码启动脚本、
+UTF-8 补丁和 `mcp_server.json` 示例。详见 [phone_mcp/README.md](phone_mcp/README.md)。

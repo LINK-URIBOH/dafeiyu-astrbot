@@ -2,6 +2,27 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-20 · v1.4.4 手机控制接通：PhoneMCP → 云端 AstrBot
+
+- 本地 Windows 雷电 14 模拟器（`720×1280 / 320 dpi / 30 fps`，默认 6 vCPU / 6 GB）
+  通过 **PhoneMCP + ADB + MCP** 接入云端 AstrBot，设备 `emulator-5554`
+- 官方 `phone-mcp-windows-amd64.exe` 在中文控制台启动横幅 emoji 处崩溃
+  （`UnicodeEncodeError: 'gbk' codec can't encode character '✅'`，v0.5.0/v0.3.4
+  均复现），改为官方源码运行；`deploy/phone_mcp/patch_phone_mcp_main.py` 在
+  `main.py` 入口强制 stdout/stderr 为 UTF-8
+- 网络走 **SSH 反向隧道**：本地 `127.0.0.1:8009` → 云端 `127.0.0.1:8009`；
+  Windows 脚本带 `ServerAliveInterval` 和断线 3 秒重连。云端
+  `phone_mcp_proxy.py` 监听 Docker 网关 `172.18.0.1:8009` 再转发到回环，
+  解决“容器里的 127.0.0.1 指容器自身”的问题
+- AstrBot `data/mcp_server.json` 配置 SSE 端点 `/Phone`（fastmcp 4.x 实际路径，
+  不是 PhoneMCP 打印的 `/Phone/sse`），重启后 16 个工具全部注册
+- QQ 实测通过：`list_devices` → `get_current_app` → `get_screenshot` →
+  `launch_app(com.android.settings)` → `get_ui_elements`；她准确说出
+  “网络和互联网 / 已连接的设备”及副标题，和截图逐字一致
+- 新增 `deploy/phone_mcp/`：接线说明、云端代理、源码 UTF-8 补丁、
+  PhoneMCP/反向隧道启动脚本、`mcp_server.json` 示例
+- 未来任务（定时分享）仍未创建，先完成手动控制验收
+
 ## 2026-10-19 · v1.4.3 联网搜索打通：正常聊天 + 主动消息都能查
 
 - AstrBot 网页搜索启用：提供商 `anysearch`，API Key 留空使用匿名每日额度，
