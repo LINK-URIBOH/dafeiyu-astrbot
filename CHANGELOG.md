@@ -2,6 +2,15 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-20 · v1.5.1 截图必须发图 + sshd keepalive
+
+- 人格新增硬规则：用户明确要求截图/看屏幕时，`get_screenshot` 返回图片后
+  必须立刻调用 `send_message_to_user` 发图；只有收到 `Message sent` 才能
+  说“图发了”，只回文字不算完成。
+- 云端 sshd 增加 `ClientAliveInterval 30` / `ClientAliveCountMax 3`，
+  死隧道约 90 秒回收，避免半开连接长期占着 8009/8010；脚本见
+  `deploy/incident_20261020/set_ssh_keepalive.sh`。
+
 ## 2026-10-20 · v1.5.0 Browser Use 接入 + 旧测试记录隔离
 
 - **Browser Use 0.13.11**：新增只读 BrowserMCP（SSE 8010）+ 云端代理 +

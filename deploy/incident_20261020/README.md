@@ -43,6 +43,20 @@ python3 cleanup_test_records.py /path/to/staging --apply
 
 脚本只依赖 Python 标准库。
 
+## 附带：SSH keepalive（防僵尸隧道）
+
+两条反向隧道（8009 手机 / 8010 浏览器）曾因 SSH 半开连接在云端留下
+sshd 子进程占着端口，导致隧道一直 `remote port forwarding failed`。
+`set_ssh_keepalive.sh` 会写入
+`/etc/ssh/sshd_config.d/99-dafeiyu-keepalive.conf`：
+
+```
+ClientAliveInterval 30
+ClientAliveCountMax 3
+```
+
+`sshd -t` 校验后 reload，不重启现有连接。撤销：删除该文件并 reload sshd。
+
 ## 验收
 
 - 三个库关键词 0 命中；正常记忆保留。
