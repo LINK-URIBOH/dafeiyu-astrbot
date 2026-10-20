@@ -31,8 +31,14 @@ SSH `-R` 默认也只绑宿主回环。代理把 Docker 网关地址 `172.18.0.1
 - LDPlayer 14.0.31（Android 14），实例 `720×1280 / 320 dpi / 30 fps`，默认 6 vCPU / 6 GB
 - PhoneMCP **v0.5.0 源码运行**（Python 3.14 venv，fastmcp 4.1.1）
 - AstrBot v4.29.0 Docker，MCP 配置走 SSE
-- 实测工具：`list_devices` / `get_current_app` / `get_screenshot` /
-  `get_ui_elements` / `launch_app` / `search_apps`
+- 实测工具（17 个）：`list_devices` / `get_current_app` / `get_screenshot` /
+  `get_ui_elements` / `tap`（坐标点击）/ `tap_element` / `swipe` / `type_text` /
+  `press_key` / `launch_app` / `search_apps` 等
+- 中文输入：**ADBKeyboard** IME 广播（Android 14 上 PhoneMCP 自带的
+  ClipHelper `IClipboard` 旧接口已失效，回退方案不可用）
+- B 站：`tv.danmaku.bili` v9.15.0，首次启动的性别/年龄/兴趣引导已处理；
+  首页在放视频时 `uiautomator dump` 会报 `could not get idle state`，
+  用 `get_screenshot` + `tap(x,y)` 操作，搜索结果页和分享面板可正常读元素树
 - 模型：DeepSeek（实测可接受图片输入，截图能进上下文）
 
 ## 1. 本地模拟器
@@ -60,7 +66,8 @@ stdout/stderr 使用 UTF-8：
 
 ```powershell
 git clone https://github.com/kengerlwl/phoneMcp.git D:\AI\PhoneMCP\src
-python D:\GitHub\dafeiyu-astrbot\deploy\phone_mcp\patch_phone_mcp_main.py D:\AI\PhoneMCP\src
+cd D:\AI\PhoneMCP\src
+git apply D:\GitHub\dafeiyu-astrbot\deploy\phone_mcp\patches\phone_mcp_local_20261020.patch
 
 cd D:\AI\PhoneMCP
 python -m venv venv
@@ -72,8 +79,29 @@ python -m venv venv
 .\deploy\phone_mcp\start_phone_mcp.ps1
 ```
 
+补丁包含：`main.py` 强制 UTF-8（官方 exe 在中文控制台 emoji 崩溃）、
+新增 `tap(x,y)` 坐标点击工具、非 ASCII 输入优先走 ADBKeyboard、
+`B站`/`哔哩哔哩` 应用别名。旧版单独打 UTF-8 补丁的
+`patch_phone_mcp_main.py` 仍保留，但新装建议直接用上面的完整补丁。
+
 `fastmcp 4.x` 的实际 SSE 端点是 **`/Phone`**，不是 PhoneMCP 打印的
 `/Phone/sse`；以 `GET /Phone` 返回的 `event: endpoint` 为准。
+
+### 中文输入（ADBKeyboard）
+
+Android 14 上 PhoneMCP 自带的 ClipHelper 调用的 `IClipboard` 旧接口已不存在，
+直接报 `NoSuchMethodException`。装一个 ADBKeyboard 作为默认输入法，中文/emoji
+走 IME 广播，稳定可用：
+
+```powershell
+# APK 来自 https://github.com/senzhk/ADBKeyBoard（开源，约 17 KB）
+adb -s emulator-5554 install -r ADBKeyboard.apk
+adb -s emulator-5554 shell ime enable com.android.adbkeyboard/.AdbIME
+# 本机镜像上 `ime set` 会报 Unknown input method，用 settings put 才生效
+adb -s emulator-5554 shell settings put secure default_input_method com.android.adbkeyboard/.AdbIME
+```
+
+`start_phone_service.ps1` 每次启动都会检查并重新设一次默认输入法。
 
 ## 3. 云端代理
 
@@ -129,7 +157,43 @@ MCP services initialization completed: 1/1 successful, 0 failed.
 若人格设置了工具白名单，需要把 `list_devices`、`get_ui_elements`、
 `get_screenshot`、`launch_app` 等加入白名单。
 
-## 6. 验收
+## 6. 日常启停（开机自恢复）
+
+```powershell
+# 启动：模拟器 + PhoneMCP + SSH 隧道 + 云端代理（幂等，可重复跑）
+.\deploy\phone_mcp\start_phone_service.ps1 -Server <server-ip>
+
+# 开机/重启后刷新云端 AstrBot 的 MCP 会话
+.\deploy\phone_mcp\start_phone_service.ps1 -Server <server-ip> -RestartBot
+
+# 停止本地 PhoneMCP + 隧道（默认不关模拟器）
+.\deploy\phone_mcp\stop_phone_service.ps1
+
+# 连模拟器一起关
+.\deploy\phone_mcp\stop_phone_service.ps1 -StopEmulator
+
+# 看状态
+.\deploy\phone_mcp\phone_service_status.ps1
+```
+
+开机自启：
+
+```powershell
+.\deploy\phone_mcp\install_phone_autostart.ps1 -Server <server-ip>
+```
+
+优先注册计划任务 `DafeiyuPhoneService`（登录时运行）；没有管理员权限时自动退回
+当前用户的“启动”文件夹，生成 `DafeiyuPhoneService.cmd`，效果相同。自启命令带
+`-RestartBot`，会重启云端 AstrBot 并跑 `heal_ws.py`，让 MCP SSE 会话重新连上。
+
+断线处理：`start_reverse_tunnel.ps1` 自带 3 秒重试循环和 `ServerAliveInterval=15`；
+AstrBot 侧对 `ClosedResourceError` 有最多 2 次自动重连。若网络长时间中断后手机工具
+仍不通，执行一次 `start_phone_service.ps1 -Server <server-ip> -RestartBot` 即可。
+
+`fastmcp` 的 SSE 会话是长连接：PhoneMCP 重启后，AstrBot 必须重连才能拿到新工具列表，
+所以脚本提供 `-RestartBot`。
+
+## 7. 验收
 
 从 AstrBot 容器直接验证链路：
 
@@ -150,11 +214,18 @@ asyncio.run(main())
 PY
 ```
 
-QQ 实测话术：
+QQ 实测话术（基础控制）：
 
 > 肥鱼，看看你的虚拟手机现在是什么页面，然后打开设置，告诉我屏幕上实际显示的两个选项。
 
 三条验收：模拟器画面真的变化、AstrBot 日志出现上述工具调用、回答与截图文字一致。
+
+B 站活动验收话术：
+
+> 肥鱼，用你的虚拟手机去 B 站，自己选个想跟我分享的主题，看看前三个搜索结果，挑一个回来聊聊。告诉我标题、UP 主和你选它的理由，能拿到分享链接就一起发来。按实际看到的内容说就好。
+
+四条验收：她真的打开 B 站并完成一次搜索、回答里的标题和 UP 主与模拟器截图一致、
+选的内容确实来自前三个结果、没有编造视频剧情（只读标题/简介/截图时按这些信息聊）。
 
 ## 安全注意
 
@@ -162,3 +233,5 @@ QQ 实测话术：
 - PhoneMCP 只绑 `127.0.0.1`；云端只绑 Docker 网关，不绑 `0.0.0.0`。
 - SSH 反向隧道只转发这一个端口；服务器安全组不要放行 8009。
 - PhoneMCP 源码和雷电均由用户本机运行，不随本仓库分发。
+- ADBKeyboard 是第三方开源输入法（`senzhk/ADBKeyBoard`），只装在模拟器内；
+  仓库不分发 APK。模拟器上的 B 站保持未登录状态，避免真实账号被自动化操作。

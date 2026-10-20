@@ -20,7 +20,7 @@
 | 👥 认人 | 分得清谁在说话：群里看昵称、访客标「朋友」 | 插件注入身份标记（对方不可见） |
 | 🔐 隔离 | 每个私聊 / 每个群各一册记忆，互不串账 | livingmemory `session` 作用域 |
 | 📲 主动 | 随机 + 沉默触发，可按需联网找话题 | proactive_chat + AnySearch |
-| 📱 手机 | 看截图、读 UI、点击本地安卓模拟器 | PhoneMCP + ADB + MCP |
+| 📱 手机 | 看截图、读 UI、坐标点击、中文搜索、逛 B 站 | PhoneMCP + ADB + ADBKeyboard |
 | 🛡️ 防护 | 白名单 / 防注入 / 草稿箱 | 多层设计，见踩坑合集 |
 
 ## 📦 内容
@@ -37,6 +37,7 @@ docs/知识库笔记.md                     ← 知识库接线：功能手册 +
 docs/知识库-热梗词典示例.md            ← 现成的热梗词典（含接法），可直接导入
 docs/踩坑合集.md                       ← ⭐ 最有价值的部分：所有坑与解法
 deploy/                                ← ☁️ 云上安家套件（Docker Compose / 备份 / 嵌入切换）
+deploy/phone_mcp/                      ← 📱 模拟器接入（PhoneMCP / 反向隧道 / 启停与开机自启）
 CHANGELOG.md                           ← 更新日志
 deploy/                                ← 云服务器部署套件（Docker Compose + 补丁 + 备份 + 运维笔记）
 tests/                                 ← 回归测试（插件文本规则 / 路径解析）

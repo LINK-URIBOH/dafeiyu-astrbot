@@ -2,6 +2,26 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-20 · v1.4.6 手机逛 B 站：中文输入、坐标点击、开机自恢复
+
+- B 站 `tv.danmaku.bili` v9.15.0 首启引导已处理（女 / 18-24 / 动漫+知识科普），
+  当前停在首页；搜索、前三结果标题/UP 主、分享面板均已人工走通
+- Android 14 上 PhoneMCP 自带的 ClipHelper `IClipboard` 旧接口报
+  `NoSuchMethodException`，中文输入改走 **ADBKeyboard** IME 广播；新增
+  `type_text` 的 ADBKeyboard 分支和 `tap(x,y)` 坐标点击工具，工具总数 16 → 17
+- `launch_app` 增加 `B站` / `哔哩哔哩` / `Bilibili` 别名；完整源码补丁
+  `deploy/phone_mcp/patches/phone_mcp_local_20261020.patch`
+- 新增 `start_phone_service.ps1` / `stop_phone_service.ps1` /
+  `phone_service_status.ps1` / `install_phone_autostart.ps1`：幂等启动模拟器、
+  PhoneMCP、SSH 隧道和云端代理；无管理员权限时自动退回启动文件夹
+- `-RestartBot` 会重启云端 AstrBot 并跑 `heal_ws.py`，解决 PhoneMCP 重启后
+  AstrBot 的 MCP SSE 长连接仍是旧会话的问题；隧道脚本保留 3 秒重连循环
+- 人格新增【用虚拟手机逛 App】：截图优先、元素树失败时坐标点击、只讲看清的
+  内容；活动后按主人反馈用 `memorize_long_term_memory` 记简短摘要。
+  LivingMemory `enable_memorize_tool` 已于 2026-10-19 开启（本次核对仍为 true）
+- 待验收：QQ 私聊发“去 B 站挑一个主题、看前三个结果、回来分享”的实际表现；
+  通过后再建每日 20:30 的未来任务
+
 ## 2026-10-20 · v1.4.5 快速登录接线：NapCat 被踢后少扫码
 
 - Docker 入口脚本读的是 `ACCOUNT`（`qq --no-sandbox -q $ACCOUNT`），

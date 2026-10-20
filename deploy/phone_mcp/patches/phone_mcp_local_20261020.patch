@@ -1,0 +1,148 @@
+diff --git a/main.py b/main.py
+index 0237e58..bba28d0 100644
+--- a/main.py
++++ b/main.py
+@@ -12,6 +12,14 @@ PhoneMCP - Android 设备控制工具
+ import argparse
+ import sys
+ 
++# --- phone-mcp UTF-8 stdout patch ---
++for _stream in (sys.stdout, sys.stderr):
++    try:
++        _stream.reconfigure(encoding="utf-8", errors="backslashreplace")
++    except Exception:
++        pass
++# --- end phone-mcp UTF-8 stdout patch ---
++
+ BANNER = """
+ ╔══════════════════════════════════════════════════════════════╗
+ ║                      PhoneMCP v1.0                           ║
+diff --git a/phone_mcp/adb/input.py b/phone_mcp/adb/input.py
+index 3e6a8eb..f343481 100644
+--- a/phone_mcp/adb/input.py
++++ b/phone_mcp/adb/input.py
+@@ -1,5 +1,6 @@
+ """Input utilities for Android device text input using native ADB commands."""
+ 
++import base64
+ import os
+ import subprocess
+ import tempfile
+@@ -42,8 +43,26 @@ def type_text(text: str, device_id: str | None = None) -> None:
+ 
+ 
+ def _type_non_ascii(text: str, device_id: str | None = None) -> None:
+-    """Type non-ASCII text via clipboard + inject Ctrl+V."""
++    """Type non-ASCII text via ADBKeyboard (preferred) or clipboard paste."""
+     adb_prefix = _get_adb_prefix(device_id)
++
++    # ADBKeyboard's IME broadcast is the most reliable path on Android 14+,
++    # where ClipHelper's old IClipboard API no longer exists.
++    if _adb_keyboard_active(adb_prefix):
++        payload = base64.b64encode(text.encode("utf-8")).decode("ascii")
++        result = subprocess.run(
++            adb_prefix + [
++                "shell", "am", "broadcast",
++                "-a", "ADB_INPUT_B64", "--es", "msg", payload,
++            ],
++            capture_output=True,
++            text=True,
++            encoding="utf-8",
++            timeout=10,
++        )
++        if result.returncode == 0 and "Broadcast completed" in (result.stdout or ""):
++            return
++
+     remote_text_path = "/data/local/tmp/.phone_mcp_clip_text"
+ 
+     _ensure_clip_helper_on_device(device_id)
+@@ -71,6 +90,21 @@ def _type_non_ascii(text: str, device_id: str | None = None) -> None:
+     )
+ 
+ 
++def _adb_keyboard_active(adb_prefix: list[str]) -> bool:
++    """Return True when the ADBKeyboard IME is the active input method."""
++    try:
++        result = subprocess.run(
++            adb_prefix + ["shell", "settings", "get", "secure", "default_input_method"],
++            capture_output=True,
++            text=True,
++            encoding="utf-8",
++            timeout=5,
++        )
++        return "com.android.adbkeyboard/.AdbIME" in (result.stdout or "")
++    except Exception:
++        return False
++
++
+ def _run_clip_helper(action: str, device_id: str | None = None) -> None:
+     """Run clip helper on device with specified action."""
+     adb_prefix = _get_adb_prefix(device_id)
+diff --git a/phone_mcp/config/apps.py b/phone_mcp/config/apps.py
+index cbd58d3..4de5a31 100644
+--- a/phone_mcp/config/apps.py
++++ b/phone_mcp/config/apps.py
+@@ -34,6 +34,9 @@ APP_PACKAGES: dict[str, str] = {
+     "Expedia": "com.expedia.bookings",
+     # Video & Entertainment
+     "bilibili": "tv.danmaku.bili",
++    "Bilibili": "tv.danmaku.bili",
++    "B站": "tv.danmaku.bili",
++    "哔哩哔哩": "tv.danmaku.bili",
+     "抖音": "com.ss.android.ugc.aweme",
+     "TikTok": "com.zhiliaoapp.musically",
+     "快手": "com.smile.gifmaker",
+diff --git a/phone_mcp/server.py b/phone_mcp/server.py
+index e8df778..b6d1597 100644
+--- a/phone_mcp/server.py
++++ b/phone_mcp/server.py
+@@ -197,6 +197,37 @@ def swipe(
+         return {"status": "error", "error": str(e)}
+ 
+ 
++@mcp.tool()
++def tap(
++    x: int,
++    y: int,
++    device_id: Optional[str] = None,
++    delay: float = 1.0
++) -> Dict[str, Any]:
++    """
++    点击屏幕上的指定坐标。
++    Tap at the specified screen coordinates.
++
++    当 get_ui_elements 因页面动画/视频无法获取元素时（例如 B 站首页），
++    先用 get_screenshot 看画面，再用本工具按坐标点击。
++
++    Args:
++        x: 横坐标（像素）
++        y: 纵坐标（像素）
++        device_id: 设备 ID
++        delay: 点击后的延迟（秒）
++    """
++    try:
++        adb_tap(x, y, device_id, delay)
++        return {
++            "status": "success",
++            "action": "tap",
++            "coordinates": {"x": x, "y": y}
++        }
++    except Exception as e:
++        return {"status": "error", "error": str(e)}
++
++
+ # ============================================================================
+ # Input Tools
+ # ============================================================================
+@@ -212,8 +243,9 @@ def type_text(
+     在当前聚焦的输入框中输入文本（使用 ADB 原生指令）。
+     Type text into the currently focused input field using native ADB commands.
+ 
+-    ASCII 文本使用 `adb shell input text`，中文/emoji 等非 ASCII 文本通过
+-    剪贴板粘贴方案自动输入（零 APK 依赖，首次使用自动编译部署 helper）。
++    ASCII 文本使用 `adb shell input text`；中文/emoji 等非 ASCII 文本优先走
++    ADBKeyboard 的 IME 广播（需安装 ADBKeyboard 并设为默认输入法），未启用时
++    回退到剪贴板粘贴方案。
+ 
+     Args:
+         text: 要输入的文本（支持中文、emoji 等）
