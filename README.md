@@ -12,6 +12,7 @@
 |---|---|---|
 | 👁️ 看 | 图片 / 表情包 / 视频（默认覆盖前 5 分钟，最多 16 帧） | qwen3-vl 转述 + ffmpeg 抽帧 |
 | 🎧 听 | 语音消息 / 视频音轨（默认前 5 分钟，每 60 秒一段）| NapCat 转码 + qwen3-asr-flash |
+| 🎙️ 现场听 | 模拟器里正在播放的视频原声（B 站等） | Windows loopback 录音 + SSH -L 8012 + qwen3-asr-flash |
 | 🔊 说 | 语音条（含自定义音色） | 百炼音色复刻 + qwen-audio-3.1-tts-flash |
 | 😀 表情 | 真 QQ 表情（326 张脸） | 自研插件把 `[旺柴]` 变成真实表情段 |
 | 🧠 记 | 长期记忆 | livingmemory + bge-m3 嵌入（本地 Ollama / 硅基流动托管） |

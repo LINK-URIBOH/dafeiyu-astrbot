@@ -31,15 +31,31 @@ SSH `-R` 默认也只绑宿主回环。代理把 Docker 网关地址 `172.18.0.1
 - LDPlayer 14.0.31（Android 14），实例 `720×1280 / 320 dpi / 30 fps`，默认 6 vCPU / 6 GB
 - PhoneMCP **v0.5.0 源码运行**（Python 3.14 venv，fastmcp 4.1.1）
 - AstrBot v4.29.0 Docker，MCP 配置走 SSE
-- 实测工具（17 个）：`list_devices` / `get_current_app` / `get_screenshot` /
+- 实测工具（18 个）：`list_devices` / `get_current_app` / `get_screenshot` /
   `get_ui_elements` / `tap`（坐标点击）/ `tap_element` / `swipe` / `type_text` /
-  `press_key` / `launch_app` / `search_apps` 等
+  `press_key` / `launch_app` / `search_apps` / `listen_audio` 等
 - 中文输入：**ADBKeyboard** IME 广播（Android 14 上 PhoneMCP 自带的
   ClipHelper `IClipboard` 旧接口已失效，回退方案不可用）
 - B 站：`tv.danmaku.bili` v9.15.0，首次启动的性别/年龄/兴趣引导已处理；
   首页在放视频时 `uiautomator dump` 会报 `could not get idle state`，
   用 `get_screenshot` + `tap(x,y)` 操作，搜索结果页和分享面板可正常读元素树
 - 模型：DeepSeek（实测可接受图片输入，截图能进上下文）
+
+## 听模拟器里的声音（listen_audio）
+
+`listen_audio(seconds=15)` 录 Windows 默认扬声器的 loopback（模拟器里 B 站正在
+播放的声音），经 SSH `-L 8012` POST 到云端 `asr_relay.py`，由百炼
+`qwen3-asr-flash` 转写成文字后返回。
+
+- Windows 依赖：`soundcard`、`numpy`（PhoneMCP venv 已装）
+- 云端：`/opt/dafeiyu/tools/asr_relay.py` 只监听 `127.0.0.1:8012`，API key
+  从 AstrBot 的 `cmd_config.json` 读取，**不落到 Windows**
+- 隧道：`start_reverse_tunnel.ps1` 在 8009 隧道上带
+  `-L 8012:127.0.0.1:8012`；`start_phone_service.ps1` 会顺带拉起云端 relay
+- 用法：先让视频播放，再调用 `listen_audio`；静音返回 `silent: true`，
+  人格规则要求她如实说没听到，不补造台词
+- 验证：SAPI 中文语音 → loopback 录音 → 云端 ASR，返回
+  `大肥鱼，你现在能听见我说话了吗？`
 
 ## 1. 本地模拟器
 

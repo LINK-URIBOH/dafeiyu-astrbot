@@ -1,0 +1,119 @@
+diff --git a/phone_mcp/server.py b/phone_mcp/server.py
+index e8df778..8fa6328 100644
+--- a/phone_mcp/server.py
++++ b/phone_mcp/server.py
+@@ -14,7 +14,11 @@ Or import and run:
+ 
+ import base64
+ import io
++import json
++import os
++import tempfile
+ import time
++import urllib.request
+ from typing import Any, Dict, Optional
+ 
+ from PIL import Image as PILImage
+@@ -578,6 +614,94 @@ def wait(seconds: float = 1.0) -> Dict[str, Any]:
+         return {"status": "error", "error": str(e)}
+ 
+ 
++# ============================================================================
++# Host Audio Tools
++# ============================================================================
++
++
++def _record_loopback_wav(seconds: int, samplerate: int = 16000) -> tuple[str, float]:
++    """录 Windows 默认扬声器的 loopback，保存 16k 单声道 WAV。"""
++    import wave
++
++    import numpy as np
++    import soundcard as sc
++
++    speaker = sc.default_speaker()
++    if speaker is None:
++        raise RuntimeError("没有找到默认扬声器")
++    loop = sc.get_microphone(id=str(speaker.name), include_loopback=True)
++    with loop.recorder(samplerate=samplerate, channels=1) as recorder:
++        data = recorder.record(numframes=int(samplerate * seconds))
++    data = np.asarray(data).reshape(-1)
++    peak = float(np.max(np.abs(data))) if data.size else 0.0
++    path = os.path.join(
++        tempfile.gettempdir(), f"phone_mcp_listen_{int(time.time() * 1000)}.wav"
++    )
++    pcm = (np.clip(data, -1.0, 1.0) * 32767).astype("<i2")
++    with wave.open(path, "wb") as wav:
++        wav.setnchannels(1)
++        wav.setsampwidth(2)
++        wav.setframerate(samplerate)
++        wav.writeframes(pcm.tobytes())
++    return path, peak
++
++
++def _asr_via_cloud(wav_path: str) -> str:
++    """把 WAV POST 到云端 asr_relay（127.0.0.1:8012，经 SSH -L 转发）。"""
++    with open(wav_path, "rb") as f:
++        wav = f.read()
++    req = urllib.request.Request(
++        "http://127.0.0.1:8012/asr",
++        data=wav,
++        headers={"Content-Type": "audio/wav"},
++        method="POST",
++    )
++    with urllib.request.urlopen(req, timeout=90) as resp:
++        data = json.loads(resp.read().decode("utf-8"))
++    if data.get("status") != "success":
++        raise RuntimeError(data.get("error") or "ASR 失败")
++    return str(data.get("text") or "").strip()
++
++
++@mcp.tool()
++def listen_audio(seconds: int = 12) -> Dict[str, Any]:
++    """录一段 Windows 系统声音并转写成文字（模拟器里播放的视频原声）。
++
++    录音走默认扬声器的 loopback，转写走云端百炼 qwen3-asr-flash。
++    Args:
++        seconds: 录音秒数，3-30，默认 12。
++    """
++    seconds = max(3, min(30, int(seconds)))
++    path = ""
++    try:
++        path, peak = _record_loopback_wav(seconds)
++        if peak < 0.005:
++            return {
++                "status": "success",
++                "seconds": seconds,
++                "peak": round(peak, 4),
++                "silent": True,
++                "text": "",
++                "note": "这 %d 秒里没有检测到声音" % seconds,
++            }
++        text = _asr_via_cloud(path)
++        return {
++            "status": "success",
++            "seconds": seconds,
++            "peak": round(peak, 4),
++            "silent": not bool(text),
++            "text": text,
++        }
++    except Exception as e:
++        return {"status": "error", "error": str(e)[:300]}
++    finally:
++        if path:
++            try:
++                os.remove(path)
++            except OSError:
++                pass
++
++
+ # ============================================================================
+ # Server Run Function
+ # ============================================================================
+@@ -608,6 +732,7 @@ def run(transport: str = "sse", host: str = "0.0.0.0", port: int = 8009, path: s
+     print("  - launch_app            启动应用")
+     print("  - get_current_app       获取当前应用")
+     print("  - search_apps           搜索已安装应用")
++    print("  - listen_audio          录系统声音并转写")
+     print("  - wait                  等待")
+     print("=" * 60)
+     print("\n🎯 Starting server...\n")

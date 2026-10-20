@@ -2,6 +2,23 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-21 · v1.6.0 让大肥鱼听见模拟器的声音
+
+- 新增 PhoneMCP 工具 `listen_audio(seconds=15)`：录 Windows 默认扬声器的
+  loopback（模拟器里正在播放的 B 站原声），转写成文字后返回。PhoneMCP 工具
+  从 17 个增至 18 个。
+- 云端新增 `deploy/phone_mcp/asr_relay.py`，只监听 `127.0.0.1:8012`；Windows
+  通过 SSH `-L 8012:127.0.0.1:8012` 访问，DashScope key 只在云端读取，不复制
+  到 Windows。
+- `start_reverse_tunnel.ps1` 在 8009 隧道上增加 8012 本地转发；
+  `start_phone_service.ps1` 会检查并拉起云端 relay、检测缺失转发时重启隧道。
+- 人格新增规则：需要听视频原声时先点播放，再调用 `listen_audio`；返回
+  `silent`/空就如实说没听到，不补造台词。
+- 验收：Windows SAPI 中文语音 → loopback 录音 → SSH 转发 → 云端
+  qwen3-asr-flash，返回“大肥鱼，你现在能听见我说话了吗？”；静音时 `peak`
+  接近 0 并返回 `silent: true`。
+- 依赖：PhoneMCP venv 新增 `soundcard`、`numpy`。
+
 ## 2026-10-21 · v1.5.2 中文标点归一（顿号当逗号）
 
 - 现象：她偶尔把顿号当逗号用，例如“视频本身我这边没声音、也只看得到画面”；

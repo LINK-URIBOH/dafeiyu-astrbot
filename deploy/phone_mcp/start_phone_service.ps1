@@ -121,6 +121,18 @@ if (Test-LocalPort -Port $Port) {
 }
 
 # 3. SSH reverse tunnel (the script retries forever)
+# The phone tunnel also carries -L 8012 for the cloud ASR relay. If an old
+# tunnel is running without it, restart the tunnel launcher once.
+if ($Port -eq 8009 -and -not (Test-LocalPort -Port 8012)) {
+    $stale = Find-TunnelProcesses
+    if ($stale) {
+        Write-Log "Reverse tunnel missing ASR forward; restarting tunnel launcher"
+        foreach ($p in $stale) {
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Seconds 1
+    }
+}
 if (Find-TunnelProcesses) {
     Write-Log "Reverse tunnel script already running"
 } else {
@@ -136,10 +148,10 @@ if (Find-TunnelProcesses) {
     Write-Log "Tunnel launcher started (reconnects every 3s)"
 }
 
-# 4. Cloud proxy (safe to call repeatedly)
+# 4. Cloud proxy + ASR relay (safe to call repeatedly)
 if (-not $NoCloudProxy) {
-    Write-Log "Ensuring cloud phone_mcp_proxy.py"
-    $remote = "pgrep -f phone_mcp_proxy.py >/dev/null || (cd /opt/dafeiyu/tools && nohup python3 phone_mcp_proxy.py >> phone_mcp_proxy.log 2>&1 &)"
+    Write-Log "Ensuring cloud phone_mcp_proxy.py and asr_relay.py"
+    $remote = "pgrep -f phone_mcp_proxy.py >/dev/null || (cd /opt/dafeiyu/tools && nohup python3 phone_mcp_proxy.py >> phone_mcp_proxy.log 2>&1 &); ss -lnt | grep -q ':8012' || (cd /opt/dafeiyu/tools && setsid nohup python3 asr_relay.py >> asr_relay.log 2>&1 < /dev/null &)"
     try {
         & ssh.exe -i $Key -o BatchMode=yes -o ConnectTimeout=10 "$User@$Server" $remote 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) {

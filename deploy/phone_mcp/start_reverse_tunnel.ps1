@@ -9,15 +9,23 @@ param(
 # Keep the reverse tunnel alive across network resets.
 # The tunnel exposes the local PhoneMCP (127.0.0.1:$Port) on the cloud host's
 # 127.0.0.1:$Port.  phone_mcp_proxy.py then bridges the Docker gateway to it.
+# The phone tunnel also opens a local forward to the cloud ASR relay
+# (127.0.0.1:8012) so PhoneMCP can transcribe recorded audio without
+# keeping a DashScope key on Windows.
+$sshArgs = @(
+    "-i", $Key, "-N",
+    "-o", "BatchMode=yes",
+    "-o", "ExitOnForwardFailure=yes",
+    "-o", "ServerAliveInterval=15",
+    "-o", "ServerAliveCountMax=3",
+    "-o", "ConnectTimeout=15",
+    "-R", "${Port}:127.0.0.1:${Port}"
+)
+if ($Port -eq 8009) {
+    $sshArgs += @("-L", "8012:127.0.0.1:8012")
+}
 while ($true) {
-    ssh -i $Key -N `
-        -o BatchMode=yes `
-        -o ExitOnForwardFailure=yes `
-        -o ServerAliveInterval=15 `
-        -o ServerAliveCountMax=3 `
-        -o ConnectTimeout=15 `
-        -R "${Port}:127.0.0.1:${Port}" `
-        "$User@$Server"
+    & ssh @sshArgs "$User@$Server"
 
     Write-Host "[tunnel] disconnected $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), retrying in 3s"
     Start-Sleep -Seconds 3
