@@ -26,6 +26,14 @@ from astrbot.core.star.session_llm_manager import SessionServiceManager
 
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 MAX_REPLACE = 8  # 单条消息最多替换几个表情，防刷屏
+
+# 中文标点归一：模型偶尔拿顿号当逗号、拿「」当引号。
+# 只做低风险替换；代码块由调用方切出去，不在这里处理。
+_PUNCT_CLAUSE_STARTERS = (
+    "也|又|还|就|都|却|但|可是|不过|所以|因此|因为|然后|而且|并且|"
+    "或者|或是|反而|其实|甚至|只是|才|再|已经|不会|不能|没|不|可|而"
+)
+_PUNCT_DUNHAO_CLAUSE_RE = re.compile(rf"、(?=(?:{_PUNCT_CLAUSE_STARTERS}))")
 DEFAULT_CONFIG = {
     "hedge_eraser": True,
     "face_cooldown_minutes": 10,
@@ -683,6 +691,28 @@ class FaceConvertPlugin(Star):
     # 群聊版：把"框框/顶着嘴"这类也擦掉——朋友们不该看到她拆自己的台
     META_KW_GROUP = re.compile(_META_BASE + r"|框框|顶着.{0,3}嘴")
 
+    @staticmethod
+    def _normalize_punctuation(text: str) -> str:
+        """把「」换成“”，并纠正“顿号当逗号用”的高频写法。
+
+        只处理低风险场景：顿号后面直接跟“也/就/但/所以/或者”这类分句连接词。
+        并列短词、数据列表（“2.7 万播放、85 条弹幕”）保持原样，避免误伤。
+        """
+        if not text or ("、" not in text and "「" not in text and "」" not in text):
+            return text
+
+        def fix(segment: str) -> str:
+            segment = segment.replace("「", "“").replace("」", "”")
+            if "、" not in segment:
+                return segment
+            return _PUNCT_DUNHAO_CLAUSE_RE.sub("，", segment)
+
+        # ``` 代码块原样保留
+        segments = text.split("```")
+        for i in range(0, len(segments), 2):
+            segments[i] = fix(segments[i])
+        return "```".join(segments)
+
     def _scrub_meta_sentences(self, text: str, event: AstrMessageEvent) -> str:
         """按句丢弃 meta 口癖；代码块原样保留，避免误伤用户要的代码/数据。"""
         kw = self.META_KW_GROUP if event.get_group_id() else self.META_KW
@@ -759,6 +789,10 @@ class FaceConvertPlugin(Star):
             if scrubbed != cleaned:
                 cleaned = scrubbed
                 logger.info("[face_convert] 已清扫 meta 口癖")
+            normalized = self._normalize_punctuation(cleaned)
+            if normalized != cleaned:
+                cleaned = normalized
+                logger.info("[face_convert] 已规范中文标点")
             cleaned = cleaned.strip()
             if not cleaned.strip("，。！？、：;；~… \n"):
                 # 整条都被擦光 -> 换成鱼的沉默
@@ -807,12 +841,14 @@ class FaceConvertPlugin(Star):
             return
 
         # 工具循环（tool_loop_agent_runner）的最终回复不经过 on_llm_response，
-        # 在出门关口再擦一遍 meta 口癖；只处理 Plain 文本，不碰图片/工具结果。
+        # 在出门关口再擦一遍 meta 口癖和中文标点；只处理 Plain 文本，不碰图片/工具结果。
         meta_changed = False
         meta_chain = []
         for c in result.chain:
             if isinstance(c, Plain) and c.text:
-                new_text = self._scrub_meta_sentences(c.text, event)
+                new_text = self._normalize_punctuation(
+                    self._scrub_meta_sentences(c.text, event)
+                )
                 if new_text != c.text:
                     c.text = new_text
                     meta_changed = True
@@ -821,7 +857,7 @@ class FaceConvertPlugin(Star):
             meta_chain.append(c)
         if meta_changed:
             result.chain = meta_chain or [Plain("……")]
-            logger.info("[face_convert] 已清扫 meta 口癖（结果关口）")
+            logger.info("[face_convert] 已清扫 meta 口癖/标点（结果关口）")
 
         new_chain = []
         changed = 0
