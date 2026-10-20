@@ -21,6 +21,7 @@
 | 🔐 隔离 | 每个私聊 / 每个群各一册记忆，互不串账 | livingmemory `session` 作用域 |
 | 📲 主动 | 随机 + 沉默触发，可按需联网找话题；每天 20:30 自己逛 B 站 | proactive_chat + AnySearch + cron |
 | 📱 手机 | 看截图、读 UI、坐标点击、中文搜索、逛 B 站 | PhoneMCP + ADB + ADBKeyboard |
+| 🌐 网页 | 只读浏览、搜索、提取网页信息（独立 Chrome） | Browser Use + BrowserMCP（SSE 8010 / SSH 反向隧道） |
 | 🛡️ 防护 | 白名单 / 防注入 / 草稿箱 | 多层设计，见踩坑合集 |
 
 ## 📦 内容
@@ -38,6 +39,8 @@ docs/知识库-热梗词典示例.md            ← 现成的热梗词典（含�
 docs/踩坑合集.md                       ← ⭐ 最有价值的部分：所有坑与解法
 deploy/                                ← ☁️ 云上安家套件（Docker Compose / 备份 / 嵌入切换）
 deploy/phone_mcp/                      ← 📱 模拟器接入（PhoneMCP / 反向隧道 / 启停与开机自启）
+deploy/browser_use/                    ← 🌐 只读浏览器任务（Browser Use MCP / 反向隧道 / 启停）
+deploy/incident_20261020/              ← 🧹 旧测试记录隔离脚本与复盘
 CHANGELOG.md                           ← 更新日志
 deploy/                                ← 云服务器部署套件（Docker Compose + 补丁 + 备份 + 运维笔记）
 tests/                                 ← 回归测试（插件文本规则 / 路径解析）

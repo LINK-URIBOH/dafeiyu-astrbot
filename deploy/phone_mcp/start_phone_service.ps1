@@ -49,7 +49,8 @@ function Find-TunnelProcesses {
     Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
         $_.ProcessId -ne $PID -and
         $_.CommandLine -and
-        $_.CommandLine -match "start_reverse_tunnel\.ps1"
+        $_.CommandLine -match "start_reverse_tunnel\.ps1" -and
+        $_.CommandLine -match "-Port\s+$Port"
     }
 }
 

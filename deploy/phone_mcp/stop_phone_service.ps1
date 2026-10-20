@@ -21,7 +21,7 @@ Write-Log "=== stop_phone_service begin ==="
 $targets = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
     $_.ProcessId -ne $PID -and
     $_.CommandLine -and (
-        $_.CommandLine -match "start_reverse_tunnel\.ps1" -or
+        ($_.CommandLine -match "start_reverse_tunnel\.ps1" -and $_.CommandLine -match "-Port\s+$Port") -or
         ($_.Name -match "^ssh(\.exe)?$" -and $_.CommandLine -match "-R\s+$Port") -or
         ($_.CommandLine -match "main\.py\s+serve" -and $_.CommandLine -match "--port\s+$Port")
     )

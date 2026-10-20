@@ -683,6 +683,36 @@ class FaceConvertPlugin(Star):
     # 群聊版：把"框框/顶着嘴"这类也擦掉——朋友们不该看到她拆自己的台
     META_KW_GROUP = re.compile(_META_BASE + r"|框框|顶着.{0,3}嘴")
 
+    def _scrub_meta_sentences(self, text: str, event: AstrMessageEvent) -> str:
+        """按句丢弃 meta 口癖；代码块原样保留，避免误伤用户要的代码/数据。"""
+        kw = self.META_KW_GROUP if event.get_group_id() else self.META_KW
+        if not text or not kw.search(text):
+            return text
+
+        def scrub_segment(segment: str) -> str:
+            if not kw.search(segment):
+                return segment
+            # 按句丢弃带 meta 标记的句子（她那些"不理它/不照模板走"的前戏）
+            parts = re.split(r"(?<=[。！？\n])", segment)
+            kept = [s for s in parts if not kw.search(s)]
+            joined = "".join(kept).replace("---", "")
+            joined = re.sub(r"\n{2,}", "\n", joined).strip().strip("，、")
+            # meta 句被整句丢掉以后可能留下配对不上的括号残骸（比如结尾一个
+            # 孤零零的"）"）。按数量补删：哪种括号多出来就删哪个，配对好的不动。
+            for op, cl in (("（", "）"), ("(", ")"), ("【", "】"), ("《", "》")):
+                while joined.count(cl) > joined.count(op):
+                    joined = joined[::-1].replace(cl, "", 1)[::-1]
+                while joined.count(op) > joined.count(cl):
+                    joined = joined[::-1].replace(op, "", 1)[::-1]
+            joined = joined.strip()
+            return joined if joined.strip("，。！？、：;；~… \n") else "……"
+
+        # ``` 代码块只清洗块外正文，块内代码/JSON 原样保留
+        segments = text.split("```")
+        for i in range(0, len(segments), 2):
+            segments[i] = scrub_segment(segments[i])
+        return "```".join(segments)
+
     @filter.on_llm_response()
     async def scrub_drafts(self, event: AstrMessageEvent, response) -> None:
         """发送前的三道橡皮擦：①草稿箱（双层括号）②嘴硬小尾巴 ③meta 口癖句。"""
@@ -725,28 +755,10 @@ class FaceConvertPlugin(Star):
             if hedged != cleaned:
                 cleaned = hedged
                 logger.info("[face_convert] 已擦掉嘴硬小尾巴")
-            kw = self.META_KW_GROUP if event.get_group_id() else self.META_KW
-            if kw.search(cleaned):
-                # 按句丢弃带 meta 标记的句子（她那些"不理它/不照模板走"的前戏）
-                parts = re.split(r"(?<=[。！？\n])", cleaned)
-                kept = [s for s in parts if not kw.search(s)]
-                joined = "".join(kept).replace("---", "")
-                joined = re.sub(r"\n{2,}", "\n", joined).strip().strip("，、")
-                # meta 句被整句丢掉以后可能留下配对不上的括号残骸（比如结尾一个
-                # 孤零零的"）"）。按数量补删：哪种括号多出来就删哪个，配对好的不动。
-                for op, cl in (("（", "）"), ("(", ")"), ("【", "】"), ("《", "》")):
-                    while joined.count(cl) > joined.count(op):
-                        joined = joined[::-1].replace(cl, "", 1)[::-1]
-                    while joined.count(op) > joined.count(cl):
-                        joined = joined[::-1].replace(op, "", 1)[::-1]
-                joined = joined.strip()
-                if joined.strip("，。！？、：;；~… \n"):
-                    cleaned = joined
-                    logger.info("[face_convert] 已清扫 meta 口癖")
-                else:
-                    # 整条都是口癖 -> 鱼的沉默
-                    cleaned = "……"
-                    logger.info("[face_convert] 全条 meta，已压成沉默")
+            scrubbed = self._scrub_meta_sentences(cleaned, event)
+            if scrubbed != cleaned:
+                cleaned = scrubbed
+                logger.info("[face_convert] 已清扫 meta 口癖")
             cleaned = cleaned.strip()
             if not cleaned.strip("，。！？、：;；~… \n"):
                 # 整条都被擦光 -> 换成鱼的沉默
@@ -793,6 +805,23 @@ class FaceConvertPlugin(Star):
             result.chain = []
             logger.info("[face_convert] 收到 [NO_REPLY] 暗号，已吞掉这条回复")
             return
+
+        # 工具循环（tool_loop_agent_runner）的最终回复不经过 on_llm_response，
+        # 在出门关口再擦一遍 meta 口癖；只处理 Plain 文本，不碰图片/工具结果。
+        meta_changed = False
+        meta_chain = []
+        for c in result.chain:
+            if isinstance(c, Plain) and c.text:
+                new_text = self._scrub_meta_sentences(c.text, event)
+                if new_text != c.text:
+                    c.text = new_text
+                    meta_changed = True
+                if not c.text.strip():
+                    continue
+            meta_chain.append(c)
+        if meta_changed:
+            result.chain = meta_chain or [Plain("……")]
+            logger.info("[face_convert] 已清扫 meta 口癖（结果关口）")
 
         new_chain = []
         changed = 0

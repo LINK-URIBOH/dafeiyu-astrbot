@@ -30,7 +30,9 @@ if (Test-Path -LiteralPath $adb) {
 }
 
 $tunnel = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-    $_.CommandLine -and $_.CommandLine -match "start_reverse_tunnel\.ps1"
+    $_.CommandLine -and
+    $_.CommandLine -match "start_reverse_tunnel\.ps1" -and
+    $_.CommandLine -match "-Port\s+$Port"
 }
 Write-Host ("Tunnel script   : " + [bool]$tunnel)
 

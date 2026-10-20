@@ -2,6 +2,21 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-20 · v1.5.0 Browser Use 接入 + 旧测试记录隔离
+
+- **Browser Use 0.13.11**：新增只读 BrowserMCP（SSE 8010）+ 云端代理 +
+  AstrBot `browser-use` 条目；独立 Chrome、域名白名单、任务串行。
+  修复 `deepseek-flash` 思考模式拒绝 `tool_choice`、扩展下载拖垮启动超时、
+  Windows 控制台 GBK 乱码等坑。
+- **face_convert**：抽出 `_scrub_meta_sentences`，并在 `convert_faces`
+  （`on_decorating_result` 结果关口）对 Plain 文本再擦一遍，覆盖工具循环
+  最终回复；代码块原样保留，不碰工具调用/结构化数据。
+- **事故隔离**：把 3 个会话里的「星绘 / 必须输出 XML / 系统自检」注入测试
+  三连从会话、LivingMemory 文档/图条目/节点/边/FTS/来源中定点清除；
+  正常长期记忆保留，三个库关键词归零。
+- **PhoneMCP**：反向隧道进程匹配按 `-Port` 区分，手机 8009 与浏览器 8010
+  可同时运行。
+
 ## 2026-10-20 · v1.4.8 叫起床改到 8:00
 
 - AstrBot 未来任务「大肥鱼叫起床」的 cron 从 `0 7 * * *` 改为
