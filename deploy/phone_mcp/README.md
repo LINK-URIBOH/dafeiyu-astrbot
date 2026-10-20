@@ -227,6 +227,33 @@ B 站活动验收话术：
 四条验收：她真的打开 B 站并完成一次搜索、回答里的标题和 UP 主与模拟器截图一致、
 选的内容确实来自前三个结果、没有编造视频剧情（只读标题/简介/截图时按这些信息聊）。
 
+## 8. 未来任务（每日 20:30 逛 B 站）
+
+AstrBot 的「未来任务」就是 `cron_jobs` 表里的 `active_agent` 任务。2026-10-20 已建：
+
+- 名称：`大肥鱼晚间逛B站`
+- Cron：`30 20 * * *`，时区 `Asia/Shanghai`
+- 会话：`qq:FriendMessage:2725331494`（主号私聊）
+- 提示词要点：结合最近聊天和长期记忆选主题（别每天同一类）→ 手机打开 B 站搜索 →
+  看前三个结果 → 挑一条打开看标题/UP/简介/页面数据 → 私聊汇报，只讲实际看到的 →
+  能拿分享链接就拿，拿不到直说 → 发完用 `memorize_long_term_memory` 记活动摘要，
+  主人的评价等回复后再补 → 过程不逐条直播，最后一条发完。
+- 依赖：20:30 时 Windows 电脑、LDPlayer、PhoneMCP、SSH 隧道和云端 AstrBot 都在线；
+  手机工具是已注册的 MCP 工具，活动任务可直接调用。
+
+在 WebUI 的「未来任务」页能看到这条；也可以直接查库：
+
+```bash
+python3 - <<'PY'
+import sqlite3
+con = sqlite3.connect('/opt/dafeiyu/astrbot/data/data_v4.db')
+for r in con.execute("select name, cron_expression, timezone, enabled, next_run_time from cron_jobs"):
+    print(r)
+PY
+```
+
+`next_run_time` 存的是 UTC；北京时间 20:30 = UTC 12:30。
+
 ## 安全注意
 
 - ADB 只在本机使用，不要 `adb tcpip` 或把 5555 端口映射到公网。
