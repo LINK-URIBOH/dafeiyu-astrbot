@@ -2,6 +2,25 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-21 · v1.7.0 她知道自己有哪些定时任务了
+
+- 现象：01:14 她查 `future_task list` 得到“No cron jobs found”，于是说自己
+  没有定时任务；但数据库里明明有叫起床、催睡觉、晚间逛 B 站三条。
+- 根因：`future_task` 的 list 只列“当前会话 + 当前发送者创建”的任务。三条
+  后台任务由 API/面板创建，`payload` 里没有 `sender_id`，被过滤器隐藏；
+  而且她平时根本看不到这份清单，只能被动等用户问。
+- 修复（治本，不是塞一条记忆）：
+  - 新插件 `astrbot_plugin_schedule_awareness`：每轮 LLM 请求从
+    `cron_jobs` 只读表读取当前会话名下的启用任务，实时注入系统提示词；
+    支持 cron / 一次性、UTC→本地时间、按会话隔离，旧块整段替换防止重复。
+  - 给三条后台任务的 `payload` 补上 `sender_id=2725331494`，让
+    `future_task` 的 list/edit/delete 能看到它们。
+  - 人格新增规则：日程清单里的任务真实存在，不要说自己没有定时任务；
+    改时间/加任务/取消要用 `future_task`，工具成功才算数。
+- 验收：`tests/test_schedule_awareness.py` 覆盖 cron/一次性、会话隔离、
+  UTC→本地时间；真实库回放输出四条任务，朋友会话输出空。
+- 不做：没有往长期记忆里写“她有定时任务”这种会过期的笔记。
+
 ## 2026-10-21 · v1.6.0 让大肥鱼听见模拟器的声音
 
 - 新增 PhoneMCP 工具 `listen_audio(seconds=15)`：录 Windows 默认扬声器的

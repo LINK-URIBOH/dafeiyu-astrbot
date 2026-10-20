@@ -21,6 +21,7 @@
 | 👥 认人 | 分得清谁在说话：群里看昵称、访客标「朋友」 | 插件注入身份标记（对方不可见） |
 | 🔐 隔离 | 每个私聊 / 每个群各一册记忆，互不串账 | livingmemory `session` 作用域 |
 | 📲 主动 | 随机 + 沉默触发，可按需联网找话题；每天 20:30 自己逛 B 站 | proactive_chat + AnySearch + cron |
+| 🧭 日程 | 每轮知道自己名下真实存在的定时任务，不再说“我没有日程” | schedule_awareness 实时注入 cron_jobs（只读、按会话隔离） |
 | 📱 手机 | 看截图、读 UI、坐标点击、中文搜索、逛 B 站 | PhoneMCP + ADB + ADBKeyboard |
 | 🌐 网页 | 只读浏览、搜索、提取网页信息（独立 Chrome） | Browser Use + BrowserMCP（SSE 8010 / SSH 反向隧道） |
 | 🛡️ 防护 | 白名单 / 防注入 / 草稿箱 | 多层设计，见踩坑合集 |
@@ -29,6 +30,7 @@
 
 ```
 plugin/astrbot_plugin_face_convert/   ← 核心插件（AstrBot 插件，直接可装）
+plugin/astrbot_plugin_schedule_awareness/ ← 🧭 把她的定时任务实时注入系统提示词
 persona/大肥鱼-人格.md                 ← 人格提示词（可直接导入 AstrBot）
 persona/课程记忆-模板.md               ← "让她自己悟"的教学记忆模板
 docs/部署指南.md                       ← 从零搭建的路线图
