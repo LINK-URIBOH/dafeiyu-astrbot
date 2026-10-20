@@ -2,6 +2,16 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-20 · v1.4.5 快速登录接线：NapCat 被踢后少扫码
+
+- Docker 入口脚本读的是 `ACCOUNT`（`qq --no-sandbox -q $ACCOUNT`），
+  原模板写的 `NAPCAT_ACCOUNT` 是无效变量；云端 compose 已改正，并加
+  `NAPCAT_QUICK_ACCOUNT`，被踢后 Worker 重启会自动尝试快速登录
+- 实测：容器重建后首次仍需扫码（QQ 提示“未找到历史登录记录”，设备指纹
+  随容器变化）；扫码后 OneBot11 WS 正常回连 AstrBot。以后改配置优先
+  `docker restart` 或 WebUI，别频繁 `docker compose up -d` 重建
+- `deploy/README.md` 补快速登录变量名与“重建会丢记录”的坑
+
 ## 2026-10-20 · v1.4.4 手机控制接通：PhoneMCP → 云端 AstrBot
 
 - 本地 Windows 雷电 14 模拟器（`720×1280 / 320 dpi / 30 fps`，默认 6 vCPU / 6 GB）

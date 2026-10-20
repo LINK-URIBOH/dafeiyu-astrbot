@@ -41,6 +41,9 @@ QQ 用户 ⇄ 腾讯服务器 ⇄ NapCat(Docker) ⇄ WebSocket(6199) ⇄ AstrBot
 
 ## 踩过的坑
 
+- **快速登录变量名**：Docker 入口脚本读的是 `ACCOUNT`（`qq --no-sandbox -q $ACCOUNT`），不是 `NAPCAT_ACCOUNT`；
+  再配 `NAPCAT_QUICK_ACCOUNT` 让 Worker 重启后自动尝试快速登录。容器**重建**会丢快速登录记录（设备指纹变），
+  改配置优先 `docker restart` 或 WebUI，别频繁 `up -d` 重建。
 - **QQ 登录态不可跨平台迁移**：Linux NapCat 必须重新扫码一次
 - **双登互踢**：旧机自启项（AstrBot Launcher / 启动大肥鱼QQ）务必停用
 - **升级覆盖补丁**：核心补丁不要改镜像，bind-mount 挂进去

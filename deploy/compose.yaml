@@ -32,4 +32,5 @@ services:
       - /opt/dafeiyu/napcat/qq:/app/.config/QQ
     environment:
       - TZ=Asia/Shanghai
-      - NAPCAT_ACCOUNT=your_qq_account   # 填小号 QQ 号
+      - ACCOUNT=your_qq_account            # Docker 入口脚本用 -q 快速登录（不是 NAPCAT_ACCOUNT）
+      - NAPCAT_QUICK_ACCOUNT=your_qq_account  # Worker 重启后自动尝试快速登录
