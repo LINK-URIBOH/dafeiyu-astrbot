@@ -26,9 +26,10 @@
 - Windows 本地单测 84 项中有 8 项环境差异失败（`chmod 0600` 语义、SQLite 句柄导致临时目录无法删除、Git Bash 的 `python3` 是 Store 存根）；这些不代表 Linux 生产路径失败，Windows 实测以真实服务+ADB 为准。
 
 仍待用户参与/联调：
-- QQ 小号 248093506 被 KickedOffLine，已按卡死流程移走 `napcat/qq` 并生成新二维码；**等待用户扫码**。
-- B 站账号尚未登录（`bili_read status` 返回 `logged_in:false`）；二维码超时后需重新生成并**等待用户扫码**。
-- 之后才能做：被动“截图看看”QQ 收图、一次性自主活动、真实评论/收藏提议与回读、LivingMemory 保存、周期启用。
+- QQ 小号 248093506 于 2026-10-21 21:52 扫码恢复登录，当天群消息收发正常。
+- B 站账号于 2026-10-21 22:00 扫码登录成功：UID `1926697723`（做个亻），`bili_read status` 返回 `logged_in:true`，关注列表可读。
+- 真实视频链路：`bili_prepare_video` 对 `BV1Jonu6mEYG`（cid 42839704376）取 0–8 秒，下载 21.8 MB，返回 2 帧 + 1 段音频，`covered_range` 与请求一致。
+- 仍待完成：被动“截图看看”QQ 收图、一次性自主活动、真实评论/收藏提议与回读、LivingMemory 保存、周期启用。
 
 ## 最终本地结果
 

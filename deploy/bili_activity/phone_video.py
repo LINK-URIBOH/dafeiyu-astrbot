@@ -151,7 +151,7 @@ class PhoneVideo:
         if not (await self.device_online())["online"]:
             return {"device_id": self.device_id, "online": False, "identity_verified": False,
                     "reason": "device_offline", "observed_at": time.time()}
-        before = focused_component(await self._adb("shell", "dumpsys", "window", "windows"))
+        before = focused_component(await self._adb("shell", "dumpsys", "window"))
         if not before:
             return {"device_id": self.device_id, "online": True, "identity_verified": False,
                     "reason": "bilibili_not_focused", "observed_at": time.time()}
@@ -162,7 +162,7 @@ class PhoneVideo:
         except (RuntimeError, TimeoutError):
             reference = None
             ui_reason = "ui_dump_unavailable"
-        after = focused_component(await self._adb("shell", "dumpsys", "window", "windows"))
+        after = focused_component(await self._adb("shell", "dumpsys", "window"))
         if after != before:
             return {"device_id": self.device_id, "online": True, "identity_verified": False,
                     "reason": "foreground_changed_during_read", "observed_at": time.time()}
@@ -199,7 +199,7 @@ class PhoneVideo:
         )
         if re.search(r"(?im)^\s*(?:Error|Exception):", output):
             raise RuntimeError("Bilibili could not open the requested page")
-        return focused_component(await self._adb("shell", "dumpsys", "window", "windows"))
+        return focused_component(await self._adb("shell", "dumpsys", "window"))
 
     async def open_video(self, bvid, page=1):
         if not isinstance(bvid, str) or not BV_RE.fullmatch(bvid):
@@ -219,7 +219,22 @@ class PhoneVideo:
 
     async def home(self):
         async with self.lock:
-            component = await self._launch("bilibili://main/home/")
+            # Current Bilibili builds no longer resolve bilibili://main/home/.
+            # Use the supported home scheme, then fall back to the resolved
+            # launcher activity instead of guessing a component name.
+            try:
+                component = await self._launch("bilibili://home")
+            except RuntimeError:
+                resolved = await self._adb(
+                    "shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE)
+                component_name = resolved.strip().splitlines()[-1].strip()
+                if not component_name.startswith(PACKAGE + "/"):
+                    raise RuntimeError("Bilibili launcher activity unavailable")
+                output = await self._adb("shell", "am", "start", "-W", "-n",
+                                         component_name, timeout=20)
+                if re.search(r"(?im)^\s*(?:Error|Exception):", output):
+                    raise RuntimeError("Bilibili could not be launched")
+                component = focused_component(await self._adb("shell", "dumpsys", "window"))
             return {"device_id": self.device_id, "requested_page": "home",
                     "bilibili_focused": bool(component), "page_verified": False,
                     "reason": "verify the visible page with PhoneMCP screenshot", "observed_at": time.time()}
@@ -227,7 +242,7 @@ class PhoneVideo:
     async def following(self):
         """Tap only an exact clickable navigation label; never a follow button."""
         async with self.lock:
-            if not focused_component(await self._adb("shell", "dumpsys", "window", "windows")):
+            if not focused_component(await self._adb("shell", "dumpsys", "window")):
                 raise RuntimeError("Bilibili is not focused")
             xml = await self._adb("shell", "uiautomator", "dump", "/dev/tty", timeout=12)
             start, end = xml.find("<hierarchy"), xml.rfind("</hierarchy>")

@@ -37,7 +37,7 @@ class FakeADB:
         self.calls.append(args)
         if args == ["get-state"]:
             return (0, "device\n", "") if self.online else (1, "", "device unavailable")
-        if args == ["shell", "dumpsys", "window", "windows"]:
+        if args == ["shell", "dumpsys", "window"]:
             value = self.focus[0] if len(self.focus) == 1 else self.focus.pop(0)
             return 0, value, ""
         if args[:3] == ["shell", "uiautomator", "dump"]:
