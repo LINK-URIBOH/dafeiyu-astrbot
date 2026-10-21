@@ -3,7 +3,7 @@ param(
     [string]$User = "root",
     [string]$Key = "$env:USERPROFILE\.ssh\ecs_dafeiyu",
     [int]$SshPort = 22,
-    [int]$Port = 8010
+    [int]$Port = 8011
 )
 $ErrorActionPreference = "Stop"
 if ($Server -notmatch '^[A-Za-z0-9._-]+$' -or $User -notmatch '^[A-Za-z0-9._-]+$') {

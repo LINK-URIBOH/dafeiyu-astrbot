@@ -15,7 +15,7 @@ from mcp.client.streamable_http import streamablehttp_client
 
 async def main():
     async with asyncio.timeout(20):
-        async with streamablehttp_client('http://127.0.0.1:8010/mcp') as streams:
+        async with streamablehttp_client('http://127.0.0.1:8011/mcp') as streams:
             async with ClientSession(streams[0], streams[1]) as session:
                 await session.initialize()
                 names = {tool.name for tool in (await session.list_tools()).tools}

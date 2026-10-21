@@ -1,6 +1,6 @@
 """Private local companion: actual MCP streamable HTTP, never a stdio URL.
 
-Run next to the emulator; forward port 8010 through the existing SSH connection.
+Run next to the emulator; forward port 8011 through the existing SSH connection.
 This endpoint is intended only for the AstrBot controller, not direct agent tools.
 The controller owns user approval; this service owns replay prevention/readback.
 """
@@ -53,7 +53,7 @@ def validated_args(action, args, account_uid, require_account=False):
     return value
 
 
-def create_server(state_dir, *, host="127.0.0.1", port=8010, adb_path=None,
+def create_server(state_dir, *, host="127.0.0.1", port=8011, adb_path=None,
                   device_id="emulator-5554", allowed_hosts=(), api=None, phone=None):
     if not ipaddress.ip_address(host).is_loopback:
         raise ValueError("companion must bind a loopback address; use the SSH tunnel")
@@ -154,7 +154,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-dir", type=Path, required=True)
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8010)
+    parser.add_argument("--port", type=int, default=8011)
     parser.add_argument("--adb-path")
     parser.add_argument("--device-id", default="emulator-5554")
     parser.add_argument("--allowed-host", action="append", default=[])

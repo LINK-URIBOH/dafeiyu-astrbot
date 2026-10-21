@@ -5,6 +5,7 @@ param(
     [int]$SshPort = 22,
     [string]$RuntimeDir = "D:\AI\BiliActivity",
     [string]$Adb = "D:\leidian\LDPlayer14\adb.exe",
+    [string]$FfmpegDir = "D:\AI\BiliActivity\bin",
     [string]$PythonCommand = "python",
     [string]$DockerGateway = "172.18.0.1",
     [string]$DeployRoot = "/opt/dafeiyu",
@@ -22,6 +23,9 @@ if ($DockerGateway -notmatch '^\d{1,3}(\.\d{1,3}){3}$' -or $DeployRoot -notmatch
 if ($SshPort -lt 1 -or $SshPort -gt 65535) { throw "Invalid SSH port" }
 if (-not (Test-Path -LiteralPath $Key)) { throw "SSH key file is missing: $Key" }
 if (-not (Test-Path -LiteralPath $Adb)) { throw "ADB is missing: $Adb" }
+if ((Test-Path -LiteralPath (Join-Path $FfmpegDir "ffmpeg.exe"))) {
+    $env:PATH = $FfmpegDir + ";" + $env:PATH
+}
 $source = $PSScriptRoot
 $state = Join-Path $RuntimeDir "state"
 $logs = Join-Path $RuntimeDir "logs"
@@ -55,9 +59,9 @@ function Quote-Arg([string]$Value) {
 }
 
 $service = Join-Path $source "service.py"
-if ((Find-Owned $service $state).Count -eq 0) {
+if (@(Find-Owned $service $state).Count -eq 0) {
     $arguments = @('-u', (Quote-Arg $service), '--state-dir', (Quote-Arg $state),
-        '--host', '127.0.0.1', '--port', '8010', '--adb-path', (Quote-Arg $Adb),
+        '--host', '127.0.0.1', '--port', '8011', '--adb-path', (Quote-Arg $Adb),
         '--device-id', 'emulator-5554', '--allowed-host', "${DockerGateway}:*")
     $process = Start-Process -FilePath $python -ArgumentList $arguments -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $logs "service.stdout.log") `
@@ -65,9 +69,9 @@ if ((Find-Owned $service $state).Count -eq 0) {
     $process.Id | Set-Content -LiteralPath (Join-Path $RuntimeDir "service.pid") -Encoding Ascii
 }
 $tunnel = Join-Path $source "tunnel.ps1"
-if ((Find-Owned $tunnel $Server).Count -eq 0) {
+if (@(Find-Owned $tunnel $Server).Count -eq 0) {
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Quote-Arg $tunnel),
-        '-Server', $Server, '-User', $User, '-Key', (Quote-Arg $Key), '-SshPort', $SshPort, '-Port', 8010)
+        '-Server', $Server, '-User', $User, '-Key', (Quote-Arg $Key), '-SshPort', $SshPort, '-Port', 8011)
     $process = Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $logs "tunnel.stdout.log") `
         -RedirectStandardError (Join-Path $logs "tunnel.stderr.log")

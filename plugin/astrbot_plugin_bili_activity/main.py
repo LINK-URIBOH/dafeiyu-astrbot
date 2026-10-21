@@ -28,7 +28,7 @@ DEFAULTS = {
     "collection_management": False, "screenshot_enabled": True,
     "owner_scope": "", "owner_id": "", "dnd_ranges": None,
     "phone_url": "http://172.18.0.1:8009/Phone",
-    "bili_url": "http://172.18.0.1:8010/mcp", "check_minutes": 30,
+    "bili_url": "http://172.18.0.1:8011/mcp", "check_minutes": 30,
     "max_videos": 3, "max_minutes": 10, "once_at": None,
     "one_shot_verified": False, "device_id": "emulator-5554",
 }

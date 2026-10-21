@@ -20,12 +20,12 @@
 ```text
 Windows emulator-5554
   ├─ 现有 PhoneMCP ─ 原有 8009 连接 ─ AstrBot：真实截图、已有手机工具
-  └─ 新增 Bili MCP 127.0.0.1:8010/mcp
-       └─ SSH 反向转发 → 云端 127.0.0.1:8010
-            └─ Docker 私有网关:8010 → AstrBot 活动插件内的 MCPClient
+  └─ 新增 Bili MCP 127.0.0.1:8011/mcp
+       └─ SSH 反向转发 → 云端 127.0.0.1:8011
+            └─ Docker 私有网关:8011 → AstrBot 活动插件内的 MCPClient
 ```
 
-Bili 服务使用真正的 MCP Streamable HTTP；PhoneMCP 继续使用 SSE。候选 `Iseenope/bilibili-mcp-server` 仅支持 stdio，已审查其源码，但本实现没有把 stdio 地址伪装为 HTTP 服务。新增服务实现所需端点，并把执行接口限制在控制插件内；**不要将伴随服务的全部工具直接注册到 AstrBot 的普通聊天工具列表**。插件只向 Agent 暴露 `df_*` 工具，执行写入由真实 QQ 答复触发。
+Bili 服务使用真正的 MCP Streamable HTTP；PhoneMCP 继续使用 SSE。云端 `172.18.0.1:8010` 已被现有 browser-use MCP 占用，因此本服务固定使用 **8011**，两端端口必须一致。候选 `Iseenope/bilibili-mcp-server` 仅支持 stdio，已审查其源码，但本实现没有把 stdio 地址伪装为 HTTP 服务。新增服务实现所需端点，并把执行接口限制在控制插件内；**不要将伴随服务的全部工具直接注册到 AstrBot 的普通聊天工具列表**。插件只向 Agent 暴露 `df_*` 工具，执行写入由真实 QQ 答复触发。
 
 较大媒体仅在 Windows 下载、抽帧与切音频；单次下载预算 160 MiB、分析最长 300 秒、最多 8 帧，返回媒体包不超过 3 MiB。云端复用已加载 `face_convert` 的 `_vl_describe` 和 `_asr_file`。字幕存在时优先使用字幕；失败保留已取得的部分。记录的是抽样分析时间和证据，不宣称连续看完了整段视频。
 
@@ -40,7 +40,7 @@ Bili 服务使用真正的 MCP Streamable HTTP；PhoneMCP 继续使用 SSE。候
 
    非默认容器名通过 `ASTRBOT_CONTAINER` 指定；非默认数据挂载需先调整并核对脚本中的容器路径。依赖检查通过后，在 AstrBot 管理界面仅重载新插件。必须检查真实插件加载日志；本地 SDK 替身测试不能替代这一步。
 
-3. 将 `deploy/bili_activity` 文件放到 Windows 的 `D:\AI\BiliActivity\src`。使用 Python 3.12+，确保该 Windows 进程能执行 `ffmpeg`，确认 `D:\leidian\LDPlayer14\adb.exe -s emulator-5554 get-state` 返回在线。在 PowerShell 执行（主机、SSH 端口与密钥路径使用现有实际值）：
+3. 将 `deploy/bili_activity` 文件放到 Windows 的 `D:\AI\BiliActivity\src`。使用 Python 3.12+，把 `ffmpeg.exe` 放到 `D:\AI\BiliActivity\bin`（或启动时用 `-FfmpegDir` 指向实际目录），确认 `D:\leidian\LDPlayer14\adb.exe -s emulator-5554 get-state` 返回在线。Windows 还需 `tzdata`（已在 requirements.txt）。在 PowerShell 执行（主机、SSH 端口与密钥路径使用现有实际值）：
 
    ```powershell
    cd D:\AI\BiliActivity\src
@@ -48,7 +48,7 @@ Bili 服务使用真正的 MCP Streamable HTTP；PhoneMCP 继续使用 SSE。候
    .\status_bili_service.ps1
    ```
 
-   脚本创建独立 venv、本地服务和 8010 隧道，复用现有 SSH 身份；保留原 PhoneMCP 8009 连接。首个 SSH 主机指纹必须已经通过现有连接信任，不自动关闭主机校验。云端代理仅绑定实际 Docker 私有网关，默认 `172.18.0.1`，不绑定公网。
+   脚本创建独立 venv、本地服务和 8011 隧道，复用现有 SSH 身份；保留原 PhoneMCP 8009 连接。首个 SSH 主机指纹必须已经通过现有连接信任，不自动关闭主机校验。云端代理仅绑定实际 Docker 私有网关，默认 `172.18.0.1`，不绑定公网。
 
 4. 若没有可复用且验证有效的 B 站登录态，启动本地扫码。二维码只显示在本地，确认后凭证写入运行目录；不在聊天、日志或工具结果中返回 Cookie：
 
@@ -135,7 +135,7 @@ cd D:\AI\BiliActivity\src
 .\stop_bili_service.ps1
 ```
 
-只停止本次服务及 8010 隧道，不关闭模拟器或其他任务。云端代理单独使用 `cloud_service.sh stop`。没有注册系统开机自启，重启电脑后需要再次启动。
+只停止本次服务及 8011 隧道，不关闭模拟器或其他任务。云端代理单独使用 `cloud_service.sh stop`。没有注册系统开机自启，重启电脑后需要再次启动。
 
 ## 数据与故障恢复
 

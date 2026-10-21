@@ -24,7 +24,7 @@ DEFAULTS = {
     "owner_id": "",
     "dnd_ranges": None,
     "phone_url": "http://172.18.0.1:8009/Phone",
-    "bili_url": "http://172.18.0.1:8010/mcp",
+    "bili_url": "http://172.18.0.1:8011/mcp",
     "check_minutes": 30,
     "max_videos": 3,
     "max_minutes": 10,

@@ -60,7 +60,11 @@ async def login(state_dir, timeout=240, open_image=True):
         data, _ = await get_json(session, "/x/passport-login/web/qrcode/generate")
         key, url = data["qrcode_key"], data["url"]
         parsed = urlparse(url)
-        if parsed.scheme != "https" or parsed.hostname != "passport.bilibili.com":
+        # Bilibili currently returns account.bilibili.com for QR scans; keep a
+        # strict host allowlist rather than trusting any bilibili subdomain.
+        if parsed.scheme != "https" or parsed.hostname not in {
+            "passport.bilibili.com", "account.bilibili.com",
+        }:
             raise BiliError("unexpected QR destination")
         qrcode.make(url).save(qr_path)
         os.chmod(qr_path, 0o600)

@@ -6,6 +6,30 @@
 
 **结论：新增实现已通过下述本地检查；真实部署、B 站账号联调、真实模型视觉回流和 QQ 图片验收尚未完成。** 本报告不将测试替身算作真实运行。
 
+## 2026-10-21 接手 Agent 实机部署进展
+
+部署位置：华为云 `139.159.250.199`（AstrBot 4.29.0 容器）+ 本机 Windows（雷电 emulator-5554），分支 `codex/bili-activity-20261021`。
+
+已完成并验证：
+- 云端插件已落盘并加载成功：日志出现 `Loading plugin astrbot_plugin_bili_activity`、`Plugin ... (v0.1.0)`，8 个 `df_*` 工具注册；PhoneMCP 重连后 18 个工具可用。
+- 云 → Windows Bili MCP 真实往返成功：容器内 `streamablehttp_client(http://172.18.0.1:8011/mcp)` 列到 5 个工具，`bili_phone status` 返回 `online:true`，`current` 返回 `bilibili_not_focused`。
+- 本地 `status_bili_service.ps1`：MCP 握手、必需工具、emulator-5554 全部 OK。
+- PhoneMCP 已备份并应用 `phone_screenshot.patch`；真实截图返回 1 张 JPEG（720x1280，114 KB，非全黑）。
+- 云端 `deploy.sh` 已执行，备份 `/opt/dafeiyu/backups/bili-activity-20261021T124200.554744Z.tar.gz`；`control.json` 已按实际值配置：`owner_scope=qq:FriendMessage:2725331494`、`dnd_ranges=[["23:00","08:00"]]`（取自 proactive_chat 的 23-8），活动默认关闭。
+
+本轮修正（均由实机部署暴露）：
+- 端口冲突：云端 `172.18.0.1:8010` 已被 browser-use MCP 占用，Bili 服务全链路改为 **8011**。
+- `start_bili_service.ps1` 在 StrictMode 下空数组 `.Count` 会抛 `PropertyNotFoundStrict`，改为 `@(Find-Owned ...)`。
+- Windows 缺 `tzdata`，`ZoneInfo("Asia/Shanghai")` 报错；已加入 `deploy/bili_activity/requirements.txt`。
+- B 站二维码接口现在返回 `account.bilibili.com`，`login.py` 原白名单只允许 `passport.bilibili.com`；已改为严格双域名白名单。
+- Git 检出 CRLF 会让 `deploy.sh` 的 `set -o pipefail` 失效；新增 `.gitattributes` 固定 `*.sh` 为 LF。
+- Windows 本地单测 84 项中有 8 项环境差异失败（`chmod 0600` 语义、SQLite 句柄导致临时目录无法删除、Git Bash 的 `python3` 是 Store 存根）；这些不代表 Linux 生产路径失败，Windows 实测以真实服务+ADB 为准。
+
+仍待用户参与/联调：
+- QQ 小号 248093506 被 KickedOffLine，已按卡死流程移走 `napcat/qq` 并生成新二维码；**等待用户扫码**。
+- B 站账号尚未登录（`bili_read status` 返回 `logged_in:false`）；二维码超时后需重新生成并**等待用户扫码**。
+- 之后才能做：被动“截图看看”QQ 收图、一次性自主活动、真实评论/收藏提议与回读、LivingMemory 保存、周期启用。
+
 ## 最终本地结果
 
 | 检查 | 最终结果 | 证据与范围 |
