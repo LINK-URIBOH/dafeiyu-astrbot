@@ -12,7 +12,8 @@ target_tools="$deploy_root/tools/bili_activity"
 data_dir="$deploy_root/astrbot/data/plugin_data/astrbot_plugin_bili_activity"
 [[ -f "$source_plugin/main.py" ]] || { echo "Plugin source incomplete: $source_plugin" >&2; exit 1; }
 [[ -d "$deploy_root/astrbot/data" ]] || { echo "AstrBot deployment not found: $deploy_root/astrbot/data" >&2; exit 1; }
-python3 - "$source_plugin" "$script_root" "$target_plugin" "$target_tools" "$data_dir" "$deploy_root" <<'PY'
+python="${PYTHON:-python3}"
+"$python" - "$source_plugin" "$script_root" "$target_plugin" "$target_tools" "$data_dir" "$deploy_root" <<'PY'
 import datetime
 import json
 import shutil
@@ -20,6 +21,7 @@ import sqlite3
 import sys
 import tarfile
 import tempfile
+from contextlib import closing
 from pathlib import Path
 
 source, scripts, target, tools, data, root = map(Path, sys.argv[1:])
@@ -44,8 +46,8 @@ db_path = data / "activity.sqlite3"
 with tempfile.TemporaryDirectory(prefix="bili-backup-") as temp:
     db_copy = Path(temp) / "activity.sqlite3"
     if db_path.exists():
-        with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True) as origin:
-            with sqlite3.connect(db_copy) as destination:
+        with closing(sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True)) as origin:
+            with closing(sqlite3.connect(db_copy)) as destination:
                 origin.backup(destination)
                 if destination.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                     raise SystemExit("Activity database backup failed integrity_check")
@@ -84,7 +86,7 @@ print(f"Plugin staged: {target}")
 print(f"Operations staged: {tools}")
 print("Existing configuration, persona and cron jobs were not changed.")
 PY
-python3 "$target_tools/ops.py" --data-dir "$data_dir" init
+"$python" "$target_tools/ops.py" --data-dir "$data_dir" init
 if [[ "$install_deps" == "--install-deps" ]]; then
   container="${ASTRBOT_CONTAINER:-astrbot}"
   docker inspect "$container" >/dev/null

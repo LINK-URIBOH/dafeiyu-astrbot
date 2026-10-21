@@ -15,6 +15,7 @@ import sqlite3
 import time
 import math
 import xml.etree.ElementTree as ET
+from contextlib import closing
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -470,11 +471,22 @@ class Executor:
     """Persistent operation ledger. Unknown POST outcomes are never retried."""
     def __init__(self, api, state_path):
         self.api = api
-        self.db = sqlite3.connect(state_path, isolation_level=None)
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY,fingerprint TEXT,status TEXT,result TEXT)")
-        self.db.execute("UPDATE operations SET status='uncertain' WHERE status='executing'")
+        self.state_path = Path(state_path)
+        with closing(self._connect()) as db:
+            db.execute("CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY,fingerprint TEXT,status TEXT,result TEXT)")
+            db.execute("UPDATE operations SET status='uncertain' WHERE status='executing'")
         self.lock = asyncio.Lock()
+
+    def _connect(self):
+        # Open per operation so Windows releases the file between calls and
+        # tests/temporary state can be removed without killing the process.
+        db = sqlite3.connect(self.state_path, isolation_level=None)
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA busy_timeout=5000")
+        return db
+
+    def close(self):
+        """Compatibility hook; no long-lived connection is held."""
 
     async def execute(self, operation_id, action, args):
         if not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", operation_id):
@@ -482,26 +494,30 @@ class Executor:
         serialized = json.dumps([action, args], sort_keys=True, ensure_ascii=False)
         fingerprint = hashlib.sha256(serialized.encode()).hexdigest()
         async with self.lock:
-            row = self.db.execute("SELECT fingerprint,status,result FROM operations WHERE id=?", (operation_id,)).fetchone()
-            if row:
-                if row[0] != fingerprint:
-                    raise ValueError("operation_id already belongs to different arguments")
-                return {"operation_id": operation_id, "status": row[1], "replayed": True,
-                        **(json.loads(row[2]) if row[2] else {"verified": False, "reason": "unknown previous outcome; no retry"})}
-            # Validation may fail safely before the durable execution reservation.
-            path, data, identity = await self.api.prepare_write(action, args)
-            self.db.execute("INSERT INTO operations VALUES(?,?,?,NULL)", (operation_id, fingerprint, "executing"))
-            result = {"verified": False, "reason": "operation outcome unknown; no retry"}
+            db = self._connect()
             try:
-                response = await self.api.request(path, method="POST", data=data)
-                result = await self.api.verify(action, args, response, identity)
-            except asyncio.CancelledError:
-                self.db.execute("UPDATE operations SET status='uncertain',result=? WHERE id=?",
-                                (json.dumps(result), operation_id))
-                raise
-            except Exception as exc:
-                result = {"verified": False, "reason": type(exc).__name__, "retry_allowed": False}
-            status = "verified" if result.get("verified") is True else "uncertain"
-            self.db.execute("UPDATE operations SET status=?,result=? WHERE id=?",
-                            (status, json.dumps(result, ensure_ascii=False), operation_id))
-            return {"operation_id": operation_id, "status": status, "replayed": False, **result}
+                row = db.execute("SELECT fingerprint,status,result FROM operations WHERE id=?", (operation_id,)).fetchone()
+                if row:
+                    if row[0] != fingerprint:
+                        raise ValueError("operation_id already belongs to different arguments")
+                    return {"operation_id": operation_id, "status": row[1], "replayed": True,
+                            **(json.loads(row[2]) if row[2] else {"verified": False, "reason": "unknown previous outcome; no retry"})}
+                # Validation may fail safely before the durable execution reservation.
+                path, data, identity = await self.api.prepare_write(action, args)
+                db.execute("INSERT INTO operations VALUES(?,?,?,NULL)", (operation_id, fingerprint, "executing"))
+                result = {"verified": False, "reason": "operation outcome unknown; no retry"}
+                try:
+                    response = await self.api.request(path, method="POST", data=data)
+                    result = await self.api.verify(action, args, response, identity)
+                except asyncio.CancelledError:
+                    db.execute("UPDATE operations SET status='uncertain',result=? WHERE id=?",
+                               (json.dumps(result), operation_id))
+                    raise
+                except Exception as exc:
+                    result = {"verified": False, "reason": type(exc).__name__, "retry_allowed": False}
+                status = "verified" if result.get("verified") is True else "uncertain"
+                db.execute("UPDATE operations SET status=?,result=? WHERE id=?",
+                           (status, json.dumps(result, ensure_ascii=False), operation_id))
+                return {"operation_id": operation_id, "status": status, "replayed": False, **result}
+            finally:
+                db.close()

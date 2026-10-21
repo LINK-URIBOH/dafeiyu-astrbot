@@ -48,7 +48,13 @@ Bili 服务使用真正的 MCP Streamable HTTP；PhoneMCP 继续使用 SSE。云
    .\status_bili_service.ps1
    ```
 
-   脚本创建独立 venv、本地服务和 8011 隧道，复用现有 SSH 身份；保留原 PhoneMCP 8009 连接。首个 SSH 主机指纹必须已经通过现有连接信任，不自动关闭主机校验。云端代理仅绑定实际 Docker 私有网关，默认 `172.18.0.1`，不绑定公网。
+   脚本创建独立 venv、运行 `preflight.py`（Python、时区、ffmpeg、ADB、8011 端口），通过后才启动本地服务和 8011 隧道；复用现有 SSH 身份，保留原 PhoneMCP 8009 连接。首个 SSH 主机指纹必须已经通过现有连接信任，不自动关闭主机校验。云端代理仅绑定实际 Docker 私有网关，默认 `172.18.0.1`，不绑定公网。单独预检可用：
+
+   ```powershell
+   .\.venv\Scripts\python.exe .\preflight.py --adb D:\leidian\LDPlayer14\adb.exe --ffmpeg-dir D:\AI\BiliActivity\bin --port 8011
+   ```
+
+   需要登录自启时，运行 `.\install_bili_autostart.ps1 -Server <主机>`（写入当前用户启动目录，不需要管理员；`-Remove` 卸载）。它只启动 Bili 服务与隧道，PhoneMCP 和模拟器仍需各自的启动方式。
 
 4. 若没有可复用且验证有效的 B 站登录态，启动本地扫码。二维码只显示在本地，确认后凭证写入运行目录；不在聊天、日志或工具结果中返回 Cookie：
 
@@ -161,4 +167,4 @@ cd /workspace/dafeiyu-astrbot
 bash -n deploy/bili_activity/deploy.sh deploy/bili_activity/cloud_service.sh
 ```
 
-原有测试含导入替身，分进程执行，避免污染其他测试。MCP 和 ffmpeg 使用实际本机协议/进程；B 站、QQ、模型和 ADB 业务响应在这些测试中使用模拟数据。测试通过不能替代现场联调。
+Windows 开发机可直接用 `.venv\Scripts\python.exe -m unittest discover -s tests -p "test_bili_*.py"`（2026-10-21 实测 89 项通过、1 项符号链接权限跳过；另有 `test_phone_video.py` 13 项）。原有测试含导入替身，分进程执行，避免污染其他测试。MCP 和 ffmpeg 使用实际本机协议/进程；B 站、QQ、模型和 ADB 业务响应在这些测试中使用模拟数据。测试通过不能替代现场联调。

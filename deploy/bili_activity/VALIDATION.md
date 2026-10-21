@@ -23,7 +23,14 @@
 - Windows 缺 `tzdata`，`ZoneInfo("Asia/Shanghai")` 报错；已加入 `deploy/bili_activity/requirements.txt`。
 - B 站二维码接口现在返回 `account.bilibili.com`，`login.py` 原白名单只允许 `passport.bilibili.com`；已改为严格双域名白名单。
 - Git 检出 CRLF 会让 `deploy.sh` 的 `set -o pipefail` 失效；新增 `.gitattributes` 固定 `*.sh` 为 LF。
-- Windows 本地单测 84 项中有 8 项环境差异失败（`chmod 0600` 语义、SQLite 句柄导致临时目录无法删除、Git Bash 的 `python3` 是 Store 存根）；这些不代表 Linux 生产路径失败，Windows 实测以真实服务+ADB 为准。
+- Windows 单测最初有 8 项平台差异失败；已修复 `Executor` 长期持有 SQLite 句柄、deploy 脚本 `PYTHON` 覆盖、`chmod` 与符号链接的平台断言。2026-10-21 复跑 `test_bili_*.py` 89 项通过、1 项跳过，`test_phone_video.py` 13 项通过。
+
+本轮代码优化（2026-10-21 晚）：
+- 新增 `preflight.py`：启动前检查 Python、Asia/Shanghai 时区、ffmpeg、ADB 在线与 8011 端口；已接入 `start_bili_service.ps1`
+- 周期活动改为随机间隔 `check_minutes ± check_jitter_minutes`（默认 120±60 分钟），`next_check_at` 持久化，开启时不会立即触发
+- 插件初始化检查 AstrBot 版本（仅 4.29 验证），原生 Agent 导入失败时给出明确错误
+- 新增 `install_bili_autostart.ps1`（用户启动目录，无需管理员）
+- `Executor` 改为每次操作独立 SQLite 连接，Windows 句柄可释放
 
 仍待用户参与/联调：
 - QQ 小号 248093506 于 2026-10-21 21:52 扫码恢复登录，当天群消息收发正常。

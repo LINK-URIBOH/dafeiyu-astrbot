@@ -6,6 +6,7 @@ import copy
 import io
 import json
 import logging
+import os
 import socket
 import sys
 import tempfile
@@ -179,7 +180,7 @@ class APITests(unittest.IsolatedAsyncioTestCase):
                 await ledger.execute('operation-0', 'comment', {'bvid': BVID, 'cid': 11, 'message': 'changed'})
             self.assertEqual(len(self.api.posts), len(actions))
         finally:
-            ledger.db.close()
+            ledger.close()
 
     async def test_unknown_write_outcome_survives_restart_without_post_retry(self):
         path = Path(self.temp.name) / 'operations.db'
@@ -189,14 +190,14 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         result = await ledger.execute('unknown-operation', 'follow', args)
         self.assertEqual(result['status'], 'uncertain')
         self.assertNotIn(COOKIES['SESSDATA'], json.dumps(result))
-        ledger.db.close()
+        ledger.close()
         ledger = Executor(self.api, path)
         try:
             result = await ledger.execute('unknown-operation', 'follow', args)
             self.assertEqual(result['status'], 'uncertain')
             self.assertEqual(len(self.api.posts), 1)
         finally:
-            ledger.db.close()
+            ledger.close()
 
     async def test_wrong_account_and_foreign_folder_stop_before_post(self):
         with self.assertRaises(BiliError):
@@ -235,7 +236,12 @@ class CredentialTests(unittest.TestCase):
             api = FixtureAPI(folder)
             self.assertNotIn('Cookie', api.headers(False))
             self.assertEqual(output.getvalue(), '')
-            self.assertEqual(api.cookie_file.stat().st_mode & 0o777, 0o600)
+            if os.name != 'nt':
+                self.assertEqual(api.cookie_file.stat().st_mode & 0o777, 0o600)
+            else:
+                # Windows protects the file with ACLs; POSIX mode bits are not
+                # meaningful there.
+                self.assertTrue(api.cookie_file.is_file())
 
     def test_untrusted_sources_and_entity_payloads_rejected(self):
         for url in ('https://bilivideo.com.evil.test/a', 'http://127.0.0.1/a', 'file:///etc/passwd', 'https://u:p@a.bilivideo.com/a'):

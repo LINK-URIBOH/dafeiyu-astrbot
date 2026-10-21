@@ -111,6 +111,16 @@ class BiliActivity(Star):
         return cfg
 
     async def initialize(self):
+        try:
+            import astrbot
+            self.astrbot_version = getattr(astrbot, "__version__", "unknown")
+        except Exception:
+            self.astrbot_version = "unknown"
+        if not str(self.astrbot_version).startswith("4.29"):
+            logger.warning(
+                "[bili_activity] 仅在 AstrBot 4.29 验证过，当前 %s；原生 Agent 接口可能已变化",
+                self.astrbot_version,
+            )
         self.scheduler = asyncio.create_task(self.schedule(), name="dafeiyu-bili-check")
 
     async def terminate(self):
@@ -220,9 +230,15 @@ class BiliActivity(Star):
 
     async def agent(self, event, prompt, tools, image_urls=None, max_steps=32):
         """Use native request construction: live persona, conversation, provider and hooks."""
-        from astrbot.core.astr_main_agent import MainAgentBuildConfig, _get_session_conv, build_main_agent
-        from astrbot.core.pipeline.context_utils import call_event_hook
-        from astrbot.core.star.star_handler import EventType
+        try:
+            from astrbot.core.astr_main_agent import MainAgentBuildConfig, _get_session_conv, build_main_agent
+            from astrbot.core.pipeline.context_utils import call_event_hook
+            from astrbot.core.star.star_handler import EventType
+        except (ImportError, AttributeError) as exc:
+            raise RuntimeError(
+                f"AstrBot 版本不兼容（{getattr(self, 'astrbot_version', 'unknown')}，"
+                f"{type(exc).__name__}）；活动未启动"
+            ) from None
         cfg = self.context.get_config(umo=event.unified_msg_origin)
         await call_event_hook(event, EventType.OnWaitingLLMRequestEvent)
         if event.is_stopped():

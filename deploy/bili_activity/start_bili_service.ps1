@@ -10,6 +10,7 @@ param(
     [string]$DockerGateway = "172.18.0.1",
     [string]$DeployRoot = "/opt/dafeiyu",
     [switch]$SkipInstall,
+    [switch]$SkipPreflight,
     [switch]$NoCloudProxy
 )
 $ErrorActionPreference = "Stop"
@@ -59,7 +60,15 @@ function Quote-Arg([string]$Value) {
 }
 
 $service = Join-Path $source "service.py"
-if (@(Find-Owned $service $state).Count -eq 0) {
+$serviceRunning = @(Find-Owned $service $state).Count -gt 0
+if (-not $SkipPreflight) {
+    $preflightArgs = @((Join-Path $source "preflight.py"), "--adb", $Adb,
+        "--ffmpeg-dir", $FfmpegDir, "--port", "8011")
+    if ($serviceRunning) { $preflightArgs += "--allow-port-in-use" }
+    & $python @preflightArgs
+    if ($LASTEXITCODE -ne 0) { throw "Preflight failed; fix the FAIL items above before launching" }
+}
+if (-not $serviceRunning) {
     $arguments = @('-u', (Quote-Arg $service), '--state-dir', (Quote-Arg $state),
         '--host', '127.0.0.1', '--port', '8011', '--adb-path', (Quote-Arg $Adb),
         '--device-id', 'emulator-5554', '--allowed-host', "${DockerGateway}:*")

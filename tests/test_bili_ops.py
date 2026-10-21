@@ -5,8 +5,10 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import sqlite3
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -39,7 +41,7 @@ class OpsTests(unittest.TestCase):
 
     def evidence(self, *, status="completed", mode="autonomous", run_id="run-1", receipt=True):
         self.ready()
-        with sqlite3.connect(self.data / "activity.sqlite3") as con:
+        with contextlib.closing(sqlite3.connect(self.data / "activity.sqlite3")) as con:
             con.executescript("""
             CREATE TABLE runs(id TEXT,status TEXT,scope TEXT,started REAL,ended REAL);
             CREATE TABLE deliveries(scope TEXT,kind TEXT,status TEXT,created REAL,receipt TEXT,meta TEXT);
@@ -49,6 +51,7 @@ class OpsTests(unittest.TestCase):
                 "qq:FriendMessage:12345", "screenshot", "sent", 150.0,
                 json.dumps({"message_id": "42", "verified": receipt, "image_readback": receipt}),
                 json.dumps({"run_id": run_id, "share_mode": mode})))
+            con.commit()
         path = self.root / "evidence.json"
         path.write_text(json.dumps({"run_id": "run-1", "read_content_verified": True,
                                    "screenshot_opened": True, "qq_screenshot_message_id": "42"}))
@@ -134,7 +137,8 @@ class DeployTests(unittest.TestCase):
 
     def deploy(self):
         return subprocess.run(["bash", str(self.script), str(self.root)], text=True,
-                              capture_output=True, timeout=20)
+                              capture_output=True, timeout=20,
+                              env={**os.environ, "PYTHON": sys.executable})
 
     def test_deploy_preserves_config_and_archives_live_database(self):
         plugin = self.data / "plugins/astrbot_plugin_bili_activity"
@@ -150,6 +154,7 @@ class DeployTests(unittest.TestCase):
         db.execute("CREATE TABLE evidence(note TEXT)")
         db.execute("INSERT INTO evidence VALUES('existing activity state')")
         db.commit()
+        db.close()  # Windows keeps the file locked until the handle is closed.
         (self.data / "data_v4.db").write_bytes(b"paused unrelated cron jobs")
         try:
             result = self.deploy()
@@ -164,13 +169,15 @@ class DeployTests(unittest.TestCase):
                 self.assertEqual(old, b"existing user edit")
                 copied_db = Path(self.temporary.name) / "db-copy.sqlite3"
                 copied_db.write_bytes(archive.extractfile("astrbot/data/plugin_data/astrbot_plugin_bili_activity/activity.sqlite3").read())
-            with sqlite3.connect(copied_db) as backup:
+            with contextlib.closing(sqlite3.connect(copied_db)) as backup:
                 self.assertEqual(backup.execute("SELECT note FROM evidence").fetchone()[0], "existing activity state")
                 self.assertEqual(backup.execute("PRAGMA integrity_check").fetchone()[0], "ok")
         finally:
             db.close()
 
     def test_nested_destination_symlink_stops_before_overwrite(self):
+        if os.name == "nt":
+            self.skipTest("creating symlinks on Windows requires elevated privileges")
         plugin = self.data / "plugins/astrbot_plugin_bili_activity"
         plugin.mkdir(parents=True)
         victim = Path(self.temporary.name) / "outside.py"
