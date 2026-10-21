@@ -2,6 +2,25 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-21 · v1.8.0 排障从手打 SSH 变成 MCP 工具
+
+- 新增 `deploy/ops_mcp/server.py`：零第三方依赖的 stdio MCP，走 Windows
+  OpenSSH + `~/.ssh/ecs_dafeiyu`，不再每次排障手打一长串 `ssh ... docker ...`。
+- 只读工具：`health`（容器 / NapCat 登录 / AstrBot WS / 端口 / 磁盘内存）、
+  `logs`、`qr`、`plugins`、`cron_jobs`、`webui_info`（不返回 token）。
+- 受控写操作：`restart` / `heal_ws` / `compose_up`，必须传字面确认串
+  （`RESTART` / `HEAL` / `UP`）；所有调用写 `~/.dafeiyu-admin/audit.jsonl`。
+- `logs` 对 `txz.qq.com` 一次性登录 URL 与 `token=` 脱敏；`qr` 把二维码落到
+  `~/.dafeiyu-admin/qr.png` 并内联返回。
+- 配套：`register.ps1` 注册到 Claude Code user scope；`README.md` 说明工具、
+  安全边界、自检与卸载；`dafeiyu-ops` skill 改为 MCP 优先。
+- 仓库不写真实主机：用 `DAFEIYU_SSH_HOST` 环境变量或 `~/.dafeiyu-admin/host`
+  提供地址，`register.ps1` 以 `--env` 注入；公开仓库里只有占位符。
+- 验收：`--selftest` 跑通 `health` / `plugins` / `cron_jobs` / `webui_info`；
+  `claude mcp list` 显示 `dafeiyu-admin ... Connected`；PhoneMCP 的 `phone`
+  SSE 也注册成功（18 工具）。
+- 不造：没有做任意远程 shell；没有把 WebUI token 写进工具输出。
+
 ## 2026-10-21 · v1.7.0 她知道自己有哪些定时任务了
 
 - 现象：01:14 她查 `future_task list` 得到“No cron jobs found”，于是说自己

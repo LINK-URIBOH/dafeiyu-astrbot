@@ -23,6 +23,7 @@
 | 📲 主动 | 随机 + 沉默触发，可按需联网找话题；每天 20:30 自己逛 B 站 | proactive_chat + AnySearch + cron |
 | 🧭 日程 | 每轮知道自己名下真实存在的定时任务，不再说“我没有日程” | schedule_awareness 实时注入 cron_jobs（只读、按会话隔离） |
 | 📱 手机 | 看截图、读 UI、坐标点击、中文搜索、逛 B 站 | PhoneMCP + ADB + ADBKeyboard |
+| 🛠️ 运维 | 一键体检、日志、二维码、受控重启 | dafeiyu-admin MCP（SSH，只读优先） |
 | 🌐 网页 | 只读浏览、搜索、提取网页信息（独立 Chrome） | Browser Use + BrowserMCP（SSE 8010 / SSH 反向隧道） |
 | 🛡️ 防护 | 白名单 / 防注入 / 草稿箱 | 多层设计，见踩坑合集 |
 
@@ -42,6 +43,7 @@ docs/知识库-热梗词典示例.md            ← 现成的热梗词典（含�
 docs/踩坑合集.md                       ← ⭐ 最有价值的部分：所有坑与解法
 deploy/                                ← ☁️ 云上安家套件（Docker Compose / 备份 / 嵌入切换）
 deploy/phone_mcp/                      ← 📱 模拟器接入（PhoneMCP / 反向隧道 / 启停与开机自启）
+deploy/ops_mcp/                        ← 🛠️ 云端运维 MCP（health/logs/qr + 受控 restart/heal_ws）
 deploy/browser_use/                    ← 🌐 只读浏览器任务（Browser Use MCP / 反向隧道 / 启停）
 deploy/incident_20261020/              ← 🧹 旧测试记录隔离脚本与复盘
 CHANGELOG.md                           ← 更新日志
