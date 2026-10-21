@@ -122,8 +122,10 @@ Bili 服务使用真正的 MCP Streamable HTTP；PhoneMCP 继续使用 SSE。云
 `stop` 关闭后台浏览；主人主动请求截图仍由截图开关控制。完全停用图片分享需要另关 `screenshot_enabled`。参数修改示例：
 
 ```bash
-python3 /opt/dafeiyu/tools/bili_activity/ops.py configure --check-minutes 30 --max-videos 3 --max-minutes 10
+python3 /opt/dafeiyu/tools/bili_activity/ops.py configure --check-minutes 120 --check-jitter-minutes 60 --max-videos 3 --max-minutes 10
 ```
+
+周期检查不是固定间隔：实际间隔在 `check_minutes ± check_jitter_minutes` 之间随机（上例为 60–180 分钟），每次运行结束后重新抽签；开启周期后的第一次运行也会先等一个随机间隔，不会立刻触发。`--check-jitter-minutes 0` 可退回固定间隔。
 
 Windows 的一键启停与日志：
 

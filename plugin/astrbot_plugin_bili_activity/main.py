@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import random
 import re
 import tempfile
 import time
@@ -28,7 +29,8 @@ DEFAULTS = {
     "collection_management": False, "screenshot_enabled": True,
     "owner_scope": "", "owner_id": "", "dnd_ranges": None,
     "phone_url": "http://172.18.0.1:8009/Phone",
-    "bili_url": "http://172.18.0.1:8011/mcp", "check_minutes": 30,
+    "bili_url": "http://172.18.0.1:8011/mcp", "check_minutes": 120,
+    "check_jitter_minutes": 60,
     "max_videos": 3, "max_minutes": 10, "once_at": None,
     "one_shot_verified": False, "device_id": "emulator-5554",
 }
@@ -96,7 +98,8 @@ class BiliActivity(Star):
     def cfg(self):
         value = json.loads(self.control.read_text(encoding="utf-8"))
         cfg = DEFAULTS | value
-        for key, low, high in (("check_minutes", 1, 1440), ("max_videos", 1, 10), ("max_minutes", 1, 30)):
+        for key, low, high in (("check_minutes", 1, 1440), ("check_jitter_minutes", 0, 1440),
+                               ("max_videos", 1, 10), ("max_minutes", 1, 30)):
             cfg[key] = min(high, max(low, int(cfg[key])))
         if cfg["owner_scope"] and (not re.fullmatch(r"[^:]+:FriendMessage:[0-9]+", cfg["owner_scope"])
                                   or cfg["owner_scope"].rsplit(":", 1)[-1] != str(cfg["owner_id"])):
@@ -158,11 +161,20 @@ class BiliActivity(Star):
                         now = time.time()
                         once = cfg["once_at"]
                         due_once = once and now >= float(once) and self.store.get_setting("last_once") != once
-                        due_periodic = (cfg["periodic_enabled"] and cfg["one_shot_verified"]
-                                        and now - self.store.get_setting("last_check_time", 0) >= cfg["check_minutes"] * 60)
+                        due_periodic = False
+                        if cfg["periodic_enabled"] and cfg["one_shot_verified"]:
+                            next_at = self.store.get_setting("next_check_at")
+                            if next_at is None:
+                                # Schedule the first periodic run one random interval
+                                # from now; enabling must not trigger an immediate run.
+                                next_at = now + self.periodic_interval(cfg)
+                                self.store.setting("next_check_at", next_at)
+                            due_periodic = now >= float(next_at)
                         if due_once or due_periodic:
                             if due_once:
                                 self.store.setting("last_once", once)
+                            if due_periodic:
+                                self.store.setting("next_check_at", now + self.periodic_interval(cfg))
                             self.last_tick = now
                             self.store.setting("last_check_time", now)
                             self.live = asyncio.create_task(self.run_activity("once" if due_once else "periodic"))
@@ -172,6 +184,14 @@ class BiliActivity(Star):
             except Exception as exc:
                 logger.warning("[bili_activity] scheduler: %s", type(exc).__name__)
             await asyncio.sleep(5)
+
+    def periodic_interval(self, cfg):
+        """Random interval in seconds: check_minutes ± check_jitter_minutes."""
+        mean = float(cfg["check_minutes"]) * 60
+        jitter = max(0.0, float(cfg.get("check_jitter_minutes", 0))) * 60
+        low = max(60.0, mean - jitter)
+        high = max(low, mean + jitter)
+        return random.uniform(low, high)
 
     def prune_screens(self):
         cutoff = time.time() - 86400

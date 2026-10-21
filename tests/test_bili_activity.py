@@ -483,6 +483,27 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
                 await self.plugin.schedule()
         live.cancel.assert_called_once()
 
+    def test_periodic_interval_stays_within_jitter_bounds(self):
+        cfg = main.DEFAULTS | {"check_minutes": 120, "check_jitter_minutes": 60}
+        values = [self.plugin.periodic_interval(cfg) for _ in range(200)]
+        self.assertTrue(all(60 * 60 <= value <= 180 * 60 for value in values))
+        self.assertGreater(max(values) - min(values), 0)
+
+    async def test_scheduler_defers_first_periodic_run(self):
+        self.config.update(periodic_enabled=True, one_shot_verified=True,
+                           check_minutes=120, check_jitter_minutes=60)
+        self.plugin.control.write_text(json.dumps(self.config))
+        self.plugin.run_activity = AsyncMock()
+
+        async def end_after_iteration(seconds):
+            raise asyncio.CancelledError
+
+        with patch.object(main.asyncio, "sleep", end_after_iteration):
+            with self.assertRaises(asyncio.CancelledError):
+                await self.plugin.schedule()
+        self.plugin.run_activity.assert_not_called()
+        self.assertIsNotNone(self.plugin.store.get_setting("next_check_at"))
+
     async def test_scheduler_does_not_start_periodic_before_acceptance(self):
         self.config.update(periodic_enabled=True, one_shot_verified=False)
         self.plugin.control.write_text(json.dumps(self.config))

@@ -25,7 +25,8 @@ DEFAULTS = {
     "dnd_ranges": None,
     "phone_url": "http://172.18.0.1:8009/Phone",
     "bili_url": "http://172.18.0.1:8011/mcp",
-    "check_minutes": 30,
+    "check_minutes": 120,
+    "check_jitter_minutes": 60,
     "max_videos": 3,
     "max_minutes": 10,
     "once_at": None,
@@ -141,6 +142,7 @@ def main(argv=None):
     cfg.add_argument("--bili-url")
     cfg.add_argument("--device-id")
     cfg.add_argument("--check-minutes", type=int)
+    cfg.add_argument("--check-jitter-minutes", type=int)
     cfg.add_argument("--max-videos", type=int)
     cfg.add_argument("--max-minutes", type=int)
     once = sub.add_parser("once")
@@ -172,12 +174,15 @@ def main(argv=None):
             print("配置已存在，保持原样。")
             return 0
         if args.command == "configure":
-            for field in ("owner_scope", "owner_id", "phone_url", "bili_url", "device_id", "check_minutes", "max_videos", "max_minutes"):
+            for field in ("owner_scope", "owner_id", "phone_url", "bili_url", "device_id",
+                          "check_minutes", "check_jitter_minutes", "max_videos", "max_minutes"):
                 value = getattr(args, field)
                 if value is not None:
-                    limits = {"check_minutes": 1440, "max_videos": 10, "max_minutes": 30}
-                    if field in limits and not 1 <= value <= limits[field]:
-                        raise ValueError(f"{field} must be between 1 and {limits[field]}")
+                    limits = {"check_minutes": 1440, "check_jitter_minutes": 1440,
+                              "max_videos": 10, "max_minutes": 30}
+                    low = 0 if field == "check_jitter_minutes" else 1
+                    if field in limits and not low <= value <= limits[field]:
+                        raise ValueError(f"{field} must be between {low} and {limits[field]}")
                     if field in {"phone_url", "bili_url"}:
                         validate_url(value)
                     if field == "device_id" and value != "emulator-5554":
