@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$Server,
     [string]$User = "root",
@@ -149,15 +149,63 @@ if (Find-TunnelProcesses) {
 }
 
 # 4. Cloud proxy + ASR relay (safe to call repeatedly)
+#    以前用 pgrep -f 判断：ssh 远端 shell 自己的命令行里就有 proxy.py，
+#    服务没跑也会匹配成功、脚本照样报 OK。改成按监听地址判断，启动后等端口，
+#    失败返回非零；再用 curl 探一次隧道后面的 MCP（仅提示，不影响退出码）。
 if (-not $NoCloudProxy) {
     Write-Log "Ensuring cloud phone_mcp_proxy.py and asr_relay.py"
-    $remote = "pgrep -f phone_mcp_proxy.py >/dev/null || (cd /opt/dafeiyu/tools && nohup python3 phone_mcp_proxy.py >> phone_mcp_proxy.log 2>&1 &); ss -lnt | grep -q ':8012' || (cd /opt/dafeiyu/tools && setsid nohup python3 asr_relay.py >> asr_relay.log 2>&1 < /dev/null &)"
+    # 注意：PowerShell 5.1 传参给原生 exe 会吞掉双引号，远端脚本里一律不用 "
+    $remote = @'
+cd /opt/dafeiyu/tools || exit 1
+port_up() { ss -ltn | grep -q $1; }
+wait_up() { i=0; while [ $i -lt 10 ]; do sleep 1; port_up $1 && return 0; i=$((i+1)); done; return 1; }
+rc=0
+if port_up 172.18.0.1:8009; then
+  echo phone_proxy: listening
+else
+  nohup python3 phone_mcp_proxy.py >> phone_mcp_proxy.log 2>&1 &
+  if wait_up 172.18.0.1:8009; then
+    echo phone_proxy: started
+  else
+    echo phone_proxy: FAILED to listen on 172.18.0.1:8009
+    tail -n 5 phone_mcp_proxy.log
+    rc=1
+  fi
+fi
+if port_up 127.0.0.1:8012; then
+  echo asr_relay: listening
+else
+  setsid nohup python3 asr_relay.py >> asr_relay.log 2>&1 < /dev/null &
+  if wait_up 127.0.0.1:8012; then
+    echo asr_relay: started
+  else
+    echo asr_relay: FAILED to listen on 127.0.0.1:8012
+    tail -n 5 asr_relay.log
+    rc=1
+  fi
+fi
+if port_up 127.0.0.1:8009; then
+  echo phone_tunnel: listening
+  if command -v curl >/dev/null 2>&1; then
+    code=$(curl -s -o /dev/null -m 3 -w %{http_code} http://172.18.0.1:8009/Phone)
+    if [ x$code = x000 ]; then
+      echo phone_mcp: GET probe inconclusive
+    else
+      echo phone_mcp: reachable http $code
+    fi
+  fi
+else
+  echo phone_tunnel: not attached yet
+fi
+exit $rc
+'@
     try {
-        & ssh.exe -i $Key -o BatchMode=yes -o ConnectTimeout=10 "$User@$Server" $remote 2>$null | Out-Null
+        $out = & ssh.exe -i $Key -o BatchMode=yes -o ConnectTimeout=10 "$User@$Server" $remote 2>$null
+        $detail = (($out -join "; ") -replace "\r?\n", "; ")
         if ($LASTEXITCODE -eq 0) {
-            Write-Log "Cloud proxy check OK"
+            Write-Log "Cloud proxy check OK: $detail"
         } else {
-            Write-Log "WARN: cloud proxy check failed (exit $LASTEXITCODE)"
+            Write-Log "WARN: cloud proxy check failed (exit $LASTEXITCODE): $detail"
         }
     } catch {
         Write-Log "WARN: cloud proxy check failed: $($_.Exception.Message)"

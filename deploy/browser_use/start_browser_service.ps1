@@ -126,13 +126,39 @@ if (-not $NoCloudProxy) {
         }
     }
 
-    $remote = "pgrep -f browser_mcp_proxy.py >/dev/null || (cd $remoteDir && nohup python3 browser_mcp_proxy.py >> browser_mcp_proxy.log 2>&1 &)"
+    # 以前用 pgrep -f 判断：ssh 远端 shell 自己的命令行里就有 proxy.py，
+    # 服务没跑也会匹配成功、脚本照样报 OK。改成按监听地址判断并等待端口。
+    # 注意：PowerShell 5.1 传参给原生 exe 会吞掉双引号，远端脚本里一律不用 "
+    $remote = @'
+cd __REMOTE_DIR__ || exit 1
+port_up() { ss -ltn | grep -q $1; }
+wait_up() { i=0; while [ $i -lt 10 ]; do sleep 1; port_up $1 && return 0; i=$((i+1)); done; return 1; }
+if port_up 172.18.0.1:8010; then
+  echo browser_proxy: listening
+else
+  nohup python3 browser_mcp_proxy.py >> browser_mcp_proxy.log 2>&1 &
+  if wait_up 172.18.0.1:8010; then
+    echo browser_proxy: started
+  else
+    echo browser_proxy: FAILED to listen on 172.18.0.1:8010
+    tail -n 5 browser_mcp_proxy.log
+    exit 1
+  fi
+fi
+if port_up 127.0.0.1:8010; then
+  echo browser_tunnel: listening
+else
+  echo browser_tunnel: not attached yet
+fi
+'@
+    $remote = $remote.Replace('__REMOTE_DIR__', $remoteDir)
     try {
-        & ssh.exe -i $Key -o BatchMode=yes -o ConnectTimeout=10 "${User}@${Server}" $remote 2>$null | Out-Null
+        $out = & ssh.exe -i $Key -o BatchMode=yes -o ConnectTimeout=10 "${User}@${Server}" $remote 2>$null
+        $detail = (($out -join "; ") -replace "\r?\n", "; ")
         if ($LASTEXITCODE -eq 0) {
-            Write-Log "Cloud browser proxy check OK"
+            Write-Log "Cloud browser proxy check OK: $detail"
         } else {
-            Write-Log "WARN: cloud proxy check failed (exit $LASTEXITCODE)"
+            Write-Log "WARN: cloud proxy check failed (exit $LASTEXITCODE): $detail"
         }
     } catch {
         Write-Log "WARN: cloud proxy check failed: $($_.Exception.Message)"

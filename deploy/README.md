@@ -75,6 +75,9 @@ QQ 用户 ⇄ 腾讯服务器 ⇄ NapCat(Docker) ⇄ WebSocket(6199) ⇄ AstrBot
 - 备份内容：`astrbot/data` + `napcat/config` + `compose.yaml` + `Dockerfile` + `patches/` + `heal_ws.py`（恢复所需全带）；
 - **拉起后自动跑 `heal_ws.py`** 自愈 WebSocket（实测 AstrBot 重启后 NapCat 的 WS 不会自己回来）；
   平时若发现"发消息没反应"，手动跑一次 `python3 /opt/dafeiyu/heal_ws.py` 即可（不重启 QQ、不扫码）。
+- **恢复失败也非 0 退出**：拉起失败、容器不是 Running、`heal_ws.py` 报错或 30 秒内没重连，
+  都会记 `[ERROR]` 并返回非零；被 Ctrl-C/SIGTERM 打断也走同一条恢复路径。
+  备份前容器本来就是停的，则跳过停止/恢复，不会顺手把它拉起来。
 
 恢复：`docker compose stop` → 在 `/opt/dafeiyu/` 解包（`tar -xzf ... -C /opt/dafeiyu`）→
 `docker compose up -d`；NapCat 起好后如未登录，按二维码重扫。

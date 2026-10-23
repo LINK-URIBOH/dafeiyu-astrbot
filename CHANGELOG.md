@@ -2,6 +2,23 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-23 · v1.8.1 备份/启动脚本不再“假成功”
+
+- 审查发现两处 P1：`deploy/backup.sh` 恢复容器和 `heal_ws.py` 都挂了 `|| true`，
+  打包成功而 AstrBot 没起来也返回 0；`start_phone_service.ps1` /
+  `start_browser_service.ps1` 用 `pgrep -f proxy.py` 判断，ssh 远端 shell
+  自己的命令行就含该字符串，服务没跑也会匹配成功、照样报 OK。
+- `backup.sh`：拉起失败 / 容器非 Running / heal 报错 / 30 秒内未重连 → 记
+  `[ERROR]` 并非 0 退出；Ctrl-C/SIGTERM 也走同一条恢复路径；备份前容器本就
+  停着则跳过停止/恢复，不会顺手把它拉起来。
+- 启动脚本：改按监听地址判断（proxy 在 `172.18.0.1:8009/8010`，反向隧道在
+  `127.0.0.1:8009/8010`），启动后等端口最多 10 秒，失败返回非零并带日志尾巴；
+  phone 另用 curl GET 探一次 MCP（仅提示，不影响退出码）。
+- `start_phone_service.ps1` 补 UTF-8 BOM：PowerShell 5.1 把无 BOM 文件按 GBK
+  解码，中文注释里的字节会被误读成智能引号，导致整个脚本解析失败。
+- 验证：离线注入假 `docker` / `python3` / `ss` / `curl`，跑通备份 5 条路径与
+  启动 7 条路径；两个 ps1 用 PowerShell Parser 解析通过。
+
 ## 2026-10-21 · v1.8.0 排障从手打 SSH 变成 MCP 工具
 
 - 新增 `deploy/ops_mcp/server.py`：零第三方依赖的 stdio MCP，走 Windows
