@@ -200,10 +200,19 @@ class LifeState:
             if new_status != goal["status"] and new_status not in TRANSITIONS[goal["status"]]:
                 raise ValueError("invalid goal state transition")
             if new_status == "completed":
+                linked_work = None
+                if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='creative_works'").fetchone():
+                    linked_work = self.db.execute("SELECT id FROM creative_works WHERE scope=? AND goal_id=?", (scope, goal_id)).fetchone()
+                if linked_work:
+                    # A research read cannot stand in for a finished linked work.
+                    # Check the current head, even when its feature switch is off.
+                    from .workshop import Workshop
+                    if not Workshop(self.store).check(scope, linked_work["id"])["passed"]:
+                        raise ValueError("a completed writing goal needs its latest work to pass fresh checks")
                 progress = self.db.execute(
                     "SELECT kind,evidence_json FROM episodes WHERE scope=? AND goal_id=? AND kind IN ('video','video_note','read')",
                     (scope, goal_id)).fetchall()
-                observed = False
+                observed = bool(linked_work)
                 for row in progress:
                     proof = json.loads(row["evidence_json"])
                     if ((row["kind"] in {"video", "video_note"} and (proof.get("observations") or proof.get("subtitles")))

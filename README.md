@@ -6,6 +6,8 @@
 大肥鱼是 DeepSeek 蓝鲸 logo 的**社区二创形象**（非官方），本项目把「让她住进 QQ 里」
 的全套实践开源出来：一个高完成度的 AstrBot 插件、一套完整人格、以及踩过所有坑的实录。
 
+本分支新增[自主生活 v0.3：学习笔记与文字创作](deploy/bili_activity/LIFE_V03.md)：把实际浏览经历写成带来源的作品，保存版本、下次续写，并可私聊分享摘录。代码已做离线验证，新开关默认关闭，生产升级与真实 QQ 验收见[验证记录](deploy/bili_activity/VALIDATION.md)。
+
 ## ✨ 能力清单
 
 | 感官 | 能力 | 实现 |
@@ -32,6 +34,7 @@
 ```
 plugin/astrbot_plugin_face_convert/   ← 核心插件（AstrBot 插件，直接可装）
 plugin/astrbot_plugin_schedule_awareness/ ← 🧭 把她的定时任务实时注入系统提示词
+plugin/astrbot_plugin_bili_activity/   ← 自主浏览、持续目标、截图与来源笔记
 persona/大肥鱼-人格.md                 ← 人格提示词（可直接导入 AstrBot）
 persona/课程记忆-模板.md               ← "让她自己悟"的教学记忆模板
 docs/部署指南.md                       ← 从零搭建的路线图
@@ -45,6 +48,7 @@ deploy/                                ← ☁️ 云上安家套件（Docker Co
 deploy/phone_mcp/                      ← 📱 模拟器接入（PhoneMCP / 反向隧道 / 启停与开机自启）
 deploy/ops_mcp/                        ← 🛠️ 云端运维 MCP（health/logs/qr + 受控 restart/heal_ws）
 deploy/browser_use/                    ← 🌐 只读浏览器任务（Browser Use MCP / 反向隧道 / 启停）
+deploy/bili_activity/                  ← B站服务、活动开关、升级及验证说明
 deploy/incident_20261020/              ← 🧹 旧测试记录隔离脚本与复盘
 CHANGELOG.md                           ← 更新日志
 deploy/                                ← 云服务器部署套件（Docker Compose + 补丁 + 备份 + 运维笔记）

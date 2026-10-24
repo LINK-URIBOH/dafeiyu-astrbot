@@ -21,6 +21,9 @@ DEFAULTS = {
     "collection_management": False,
     "screenshot_enabled": True,
     "life_enabled": False,
+    "workshop_enabled": False,
+    "workshop_revisions_per_run": 3,
+    "workshop_max_characters": 12000,
     "daily_minutes": 30,
     "max_model_calls_per_run": 20,
     "daily_model_calls": 60,
@@ -47,6 +50,7 @@ NUMERIC_LIMITS = {
     "daily_minutes": (1, 240), "max_model_calls_per_run": (1, 64),
     "daily_model_calls": (1, 1000), "daily_shares": (0, 50),
     "screenshots_per_run": (0, 10), "chat_cooldown_seconds": (0, 3600),
+    "workshop_revisions_per_run": (1, 10), "workshop_max_characters": (500, 20000),
 }
 
 
@@ -185,6 +189,45 @@ def read_budget(folder, scope):
     }
 
 
+def read_works(folder, scope, limit=12):
+    """List scoped works without creating tables or refreshing cached checks."""
+    return read_rows(folder,
+                     "SELECT id,goal_id,title,phase,status,revision,created_at,updated_at "
+                     "FROM creative_works WHERE scope=? ORDER BY updated_at DESC,id LIMIT ?",
+                     (scope, limit), optional_table="creative_works")
+
+
+def read_work(folder, scope, work_id, revision=None):
+    """Read a saved draft; validation is historical, not a new source check."""
+    if not re.fullmatch(r"[0-9a-f]{32}", work_id):
+        raise ValueError("作品 ID 格式无效")
+    if revision is not None and revision < 1:
+        raise ValueError("revision must be a positive integer")
+    works = read_rows(folder,
+                      "SELECT id,goal_id,title,phase,status,revision,created_at,updated_at "
+                      "FROM creative_works WHERE scope=? AND id=?",
+                      (scope, work_id), optional_table="creative_works")
+    if not works:
+        raise ValueError("当前会话没有此作品或版本")
+    work = works[0]
+    requested = work["revision"] if revision is None else revision
+    rows = read_rows(folder,
+                     "SELECT revision,body,source_ids_json,validation_json,body_hash,created_at "
+                     "FROM creative_revisions WHERE scope=? AND work_id=? AND revision=?",
+                     (scope, work_id, requested))
+    if not rows:
+        if requested != 0:
+            raise ValueError("当前会话没有此作品或版本")
+        version = {"revision": 0, "body": "", "source_ids": [], "validation": None,
+                   "body_hash": None, "revision_created_at": None}
+    else:
+        version = rows[0]
+        version["source_ids"] = json.loads(version.pop("source_ids_json"))
+        version["validation"] = json.loads(version.pop("validation_json"))
+        version["revision_created_at"] = version.pop("created_at")
+    return {**work, **version, "head_revision": work["revision"], "validation_is_cached": True}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=Path(DEFAULT_DATA_DIR))
@@ -203,7 +246,7 @@ def main(argv=None):
     once = sub.add_parser("once")
     once.add_argument("--delay-seconds", type=int, default=180)
     switches = sub.add_parser("switch")
-    switches.add_argument("name", choices=["public_interactions", "collection_management", "screenshot_enabled", "life_enabled"])
+    switches.add_argument("name", choices=["public_interactions", "collection_management", "screenshot_enabled", "life_enabled", "workshop_enabled"])
     switches.add_argument("value", choices=["on", "off"])
     accepted = sub.add_parser("accept-one-shot")
     accepted.add_argument("--evidence", type=Path, required=True,
@@ -216,6 +259,11 @@ def main(argv=None):
     episodes = sub.add_parser("episodes", help="只读查看当前主人私聊的经历索引")
     episodes.add_argument("--limit", type=int, default=8)
     episodes.add_argument("--goal-id")
+    works = sub.add_parser("works", help="只读查看当前主人私聊的文字作品")
+    works.add_argument("--limit", type=int, default=12)
+    work = sub.add_parser("work", help="只读查看作品正文与已保存版本；不重新核验来源")
+    work.add_argument("work_id")
+    work.add_argument("--revision", type=int)
     args = parser.parse_args(argv)
     folder = args.data_dir.resolve()
     if args.command == "logs":
@@ -230,8 +278,20 @@ def main(argv=None):
                           "deliveries": read_rows(folder, "SELECT id,kind,status,created,receipt FROM deliveries ORDER BY created DESC LIMIT 10"),
                           "goals": read_goals(folder, control["owner_scope"]),
                           "episodes": read_episodes(folder, control["owner_scope"]),
-                          "budget": read_budget(folder, control["owner_scope"])},
+                          "budget": read_budget(folder, control["owner_scope"]),
+                          "works": read_works(folder, control["owner_scope"])},
                          ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "work":
+        control = load_control(folder)
+        print(json.dumps(read_work(folder, control["owner_scope"], args.work_id, args.revision),
+                         ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "works":
+        control = load_control(folder)
+        if not 1 <= args.limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        print(json.dumps(read_works(folder, control["owner_scope"], args.limit), ensure_ascii=False, indent=2))
         return 0
     if args.command in {"goals", "episodes"}:
         control = load_control(folder)
@@ -284,6 +344,10 @@ def main(argv=None):
                 ready(control)
                 if control["one_shot_verified"] is not True:
                     raise ValueError("先完成已有 B 站一次性活动验收，再开启持续目标功能")
+            if args.name == "workshop_enabled" and args.value == "on":
+                ready(control)
+                if control["life_enabled"] is not True or control["one_shot_verified"] is not True:
+                    raise ValueError("先完成一次性活动验收并开启 life_enabled，再开启文字创作")
             control[args.name] = args.value == "on"
         elif args.command == "accept-one-shot":
             evidence = json.loads(args.evidence.read_text(encoding="utf-8"))
