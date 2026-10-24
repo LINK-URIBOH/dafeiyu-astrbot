@@ -1,5 +1,27 @@
 # 本次验证与部署记录
 
+## 2026-10-24 自主生活 v0.2 代码交付
+
+本次基于 `main@7025063` 整合 B 站分支 `e70a686`，开发分支为 `codex/autonomous-life-v02-20261023`。在隔离 Linux 工作区完成实现和下列验证；**没有执行生产升级，没有新增真实 QQ/B 站写入或跨日运行验收记录**。10 月 21 日接手 Agent 的部分实机结果保留在下文，不能当成本次新版本的验收。
+
+实现：持久化目标及检查点、按会话追加的历次经历、来源可查的自身兴趣与主人明确偏好、每日活动/模型调用/分享预算、前台手机抢占、暂停恢复和审批状态衔接。新增 `life_enabled=false`，升级不自动启用功能；SQL 迁移前一致性备份旧库，保留原防重和投递账本。
+
+| 检查 | 实际结果 | 范围 |
+| --- | --- | --- |
+| `python -m unittest discover -s tests -p 'test_bili*.py'` | 157 项通过 | 原有 89 项 + 新增 68 项；目标/经历 17、预算 18、原生 Provider 计数适配 9、CLI 10、插件流程 14 |
+| `python tests/test_phone_video.py` | 13 项通过 | ADB 身份与导航替身 |
+| `python tests/test_video_processing.py` | 13 项通过 | 真实本地 ffmpeg/HTTP 与模型替身 |
+| `python tests/test_heal_ws.py` | 23 项检查通过 | 主线自愈逻辑回归 |
+| `python tests/test_face_rules.py` | 22 项检查通过 | 原有表情与文本规则 |
+| `python tests/test_schedule_awareness.py` | 10 项检查通过；生产 DB 检查跳过 | 当前工作区没有生产日程数据库 |
+| Python `compileall`、`git diff --check` | 通过 | 新旧插件和部署 Python 文件、差异格式 |
+
+插件流程测试通过真实的方法和临时 SQLite，替换外部模型、QQ、B 站和设备响应。覆盖：创建目标 → 读取视频及字幕 → 保存位置/感想 → 兴趣证据 → 提议 → 主人答复 → 一次执行及核实 → 重开数据库 → 选择同一目标继续。还覆盖静默结束、没有内容证据拒绝完成、前台暂停、操作开关关闭、暂停失败不领取写入、提议过期、重复答复、私聊/群聊隔离及预算耗尽保留部分内容。
+
+对照 AstrBot v4.29 原生接口完成 Provider 包装；只影响后台本轮 Provider，不修改共享前台 Provider。计数范围为 Provider 调用与显式视觉/ASR，不等同于供应商内部 HTTP 请求、LivingMemory 内部调用或精确费用。独立 proactive_chat 暂未共享该预算。更多配置、边界和现场验收步骤见 [LIFE_V02.md](LIFE_V02.md)。
+
+原有测试过程中出现 MCP SDK 的非致命弃用提示，测试仍通过。现场仍需确认 AstrBot 版本、插件加载及新增 3 个工具注册、当前模型真实工具循环和图片回流，再按原一次性验收方式测试新版本。
+
 日期：2026-10-21。执行位置：Codex Linux `/workspace/dafeiyu-astrbot`。源码基线：`46638f9822ec8233090959e419176b640d658da7`。
 
 交付新分支时已同步远程 `main` 的 `e5298bbee0a5de1da260a55a1eb8b91a1c600fc9`，保留其中新增的浏览器服务、手机音频链路、人格与标点修正；本次提交只新增本功能文件。原有源码审查记录仍以各表列出的版本为准。

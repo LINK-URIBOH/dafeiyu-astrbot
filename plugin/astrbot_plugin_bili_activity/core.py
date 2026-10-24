@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from .life import LifeState, prepare_database
+
 
 WRITES = {
     "comment", "reply", "follow", "unfollow", "favorite_add", "favorite_remove",
@@ -52,8 +54,18 @@ class Store:
     def __init__(self, folder):
         self.folder = Path(folder)
         self.folder.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.folder / "activity.sqlite3", isolation_level=None)
+        path = self.folder / "activity.sqlite3"
+        existed = path.exists()
+        self.db = sqlite3.connect(path, isolation_level=None)
         self.db.row_factory = sqlite3.Row
+        try:
+            self.schema_backup = prepare_database(self.db, self.folder, existed)
+            self._initialize()
+        except BaseException:
+            self.db.close()
+            raise
+
+    def _initialize(self):
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA busy_timeout=5000")
         self.db.executescript("""
@@ -86,6 +98,7 @@ class Store:
           scope TEXT NOT NULL, actor TEXT NOT NULL, event_id TEXT NOT NULL,
           proposal_id TEXT NOT NULL, PRIMARY KEY(scope,actor,event_id));
         """)
+        self.life = LifeState(self)
         # An interrupted non-idempotent call must never be blindly resubmitted.
         self.db.execute("UPDATE proposals SET status='uncertain' WHERE status='executing'")
         self.db.execute("UPDATE deliveries SET status='uncertain' WHERE status='sending'")
@@ -163,7 +176,13 @@ class Store:
         return {**dict(row), "status": status, "args": json.loads(row["args"])}
 
     def finish_proposal(self, pid, result):
-        status = "verified" if result.get("verified") is True else "uncertain"
+        if result.get("verified") is True:
+            status = "verified"
+        elif result.get("executed") is False and result.get("reason") == "switch_disabled":
+            # Only the trusted local pre-execution check proves no write happened.
+            status = "blocked"
+        else:
+            status = "uncertain"
         self.db.execute("UPDATE proposals SET status=?,result=? WHERE id=? AND status='executing'",
                         (status, canonical(result), pid))
 

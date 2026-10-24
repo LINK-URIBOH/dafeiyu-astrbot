@@ -20,6 +20,13 @@ DEFAULTS = {
     "public_interactions": False,
     "collection_management": False,
     "screenshot_enabled": True,
+    "life_enabled": False,
+    "daily_minutes": 30,
+    "max_model_calls_per_run": 20,
+    "daily_model_calls": 60,
+    "daily_shares": 3,
+    "screenshots_per_run": 1,
+    "chat_cooldown_seconds": 300,
     "owner_scope": "",
     "owner_id": "",
     "dnd_ranges": None,
@@ -34,6 +41,13 @@ DEFAULTS = {
     "device_id": "emulator-5554",
 }
 DEFAULT_DATA_DIR = "/opt/dafeiyu/astrbot/data/plugin_data/astrbot_plugin_bili_activity"
+NUMERIC_LIMITS = {
+    "check_minutes": (1, 1440), "check_jitter_minutes": (0, 1440),
+    "max_videos": (1, 10), "max_minutes": (1, 30),
+    "daily_minutes": (1, 240), "max_model_calls_per_run": (1, 64),
+    "daily_model_calls": (1, 1000), "daily_shares": (0, 50),
+    "screenshots_per_run": (0, 10), "chat_cooldown_seconds": (0, 3600),
+}
 
 
 def load_control(folder: Path):
@@ -116,16 +130,59 @@ def save_control(folder, control):
         temp.unlink(missing_ok=True)
 
 
-def read_rows(folder, query, params=()):
+def read_rows(folder, query, params=(), *, optional_table=None):
     path = folder / "activity.sqlite3"
     if not path.exists():
         return []
     con = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     try:
+        # A pre-v0.2 database may not have these tables yet. Do not suppress
+        # malformed columns, corrupt databases or other operational errors.
+        if optional_table is not None and not con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (optional_table,)
+        ).fetchone():
+            return []
         return [dict(row) for row in con.execute(query, params)]
     finally:
         con.close()
+
+
+def read_goals(folder, scope, limit=8, include_terminal=False):
+    terminal = "" if include_terminal else " AND status NOT IN ('completed','cancelled')"
+    return read_rows(folder,
+                     "SELECT id,title,why,status,next_step,run_id,updated_at FROM goals WHERE scope=?"
+                     + terminal + " ORDER BY updated_at DESC LIMIT ?",
+                     (scope, limit), optional_table="goals")
+
+
+def read_episodes(folder, scope, limit=8, goal_id=None):
+    where = " AND goal_id=?" if goal_id else ""
+    params = (scope, goal_id, limit) if goal_id else (scope, limit)
+    return read_rows(folder,
+                     "SELECT id,goal_id,run_id,occurred_at,kind,subject_kind,subject_id,source_id "
+                     "FROM episodes WHERE scope=?" + where + " ORDER BY occurred_at DESC LIMIT ?",
+                     params, optional_table="episodes")
+
+
+def read_budget(folder, scope):
+    """Read persisted accounting without migrating the database or reserving work."""
+    return {
+        "runs": read_rows(folder,
+                          "SELECT run_id,started,reserved_until,finished_at FROM activity_budget_runs "
+                          "WHERE scope=? ORDER BY started DESC LIMIT 5", (scope,),
+                          optional_table="activity_budget_runs"),
+        "time_days": read_rows(folder,
+                               "SELECT day,SUM(seconds) AS reserved_or_used_seconds FROM activity_budget_time "
+                               "WHERE scope=? GROUP BY day ORDER BY day DESC LIMIT 7", (scope,),
+                               optional_table="activity_budget_time"),
+        "call_days": read_rows(folder,
+                               "SELECT day,SUM(CASE WHEN kind='model' THEN 1 ELSE 0 END) AS model_calls,"
+                               "SUM(CASE WHEN kind='share' THEN 1 ELSE 0 END) AS shares,"
+                               "SUM(CASE WHEN kind='share' AND share_kind='screenshot' THEN 1 ELSE 0 END) AS screenshots "
+                               "FROM activity_budget_calls WHERE scope=? GROUP BY day ORDER BY day DESC LIMIT 7",
+                               (scope,), optional_table="activity_budget_calls"),
+    }
 
 
 def main(argv=None):
@@ -141,20 +198,24 @@ def main(argv=None):
     cfg.add_argument("--phone-url")
     cfg.add_argument("--bili-url")
     cfg.add_argument("--device-id")
-    cfg.add_argument("--check-minutes", type=int)
-    cfg.add_argument("--check-jitter-minutes", type=int)
-    cfg.add_argument("--max-videos", type=int)
-    cfg.add_argument("--max-minutes", type=int)
+    for field in NUMERIC_LIMITS:
+        cfg.add_argument("--" + field.replace("_", "-"), type=int)
     once = sub.add_parser("once")
     once.add_argument("--delay-seconds", type=int, default=180)
     switches = sub.add_parser("switch")
-    switches.add_argument("name", choices=["public_interactions", "collection_management", "screenshot_enabled"])
+    switches.add_argument("name", choices=["public_interactions", "collection_management", "screenshot_enabled", "life_enabled"])
     switches.add_argument("value", choices=["on", "off"])
     accepted = sub.add_parser("accept-one-shot")
     accepted.add_argument("--evidence", type=Path, required=True,
                           help="JSON with run_id, read_content_verified=true, screenshot_opened=true, qq_screenshot_message_id")
     logs = sub.add_parser("logs")
     logs.add_argument("--lines", type=int, default=50)
+    goals = sub.add_parser("goals", help="只读查看当前主人私聊的持续目标")
+    goals.add_argument("--limit", type=int, default=8)
+    goals.add_argument("--all", action="store_true", help="同时显示已完成或已取消目标")
+    episodes = sub.add_parser("episodes", help="只读查看当前主人私聊的经历索引")
+    episodes.add_argument("--limit", type=int, default=8)
+    episodes.add_argument("--goal-id")
     args = parser.parse_args(argv)
     folder = args.data_dir.resolve()
     if args.command == "logs":
@@ -162,11 +223,24 @@ def main(argv=None):
             print(json.dumps(row, ensure_ascii=False))
         return 0
     if args.command == "status":
-        print(json.dumps({"control": load_control(folder),
+        control = load_control(folder)
+        print(json.dumps({"control": control,
                           "runs": read_rows(folder, "SELECT * FROM runs ORDER BY started DESC LIMIT 5"),
                           "proposals": read_rows(folder, "SELECT id,action,status,created,expires FROM proposals ORDER BY created DESC LIMIT 10"),
-                          "deliveries": read_rows(folder, "SELECT id,kind,status,created,receipt FROM deliveries ORDER BY created DESC LIMIT 10")},
+                          "deliveries": read_rows(folder, "SELECT id,kind,status,created,receipt FROM deliveries ORDER BY created DESC LIMIT 10"),
+                          "goals": read_goals(folder, control["owner_scope"]),
+                          "episodes": read_episodes(folder, control["owner_scope"]),
+                          "budget": read_budget(folder, control["owner_scope"])},
                          ensure_ascii=False, indent=2))
+        return 0
+    if args.command in {"goals", "episodes"}:
+        control = load_control(folder)
+        if not 1 <= args.limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        rows = (read_goals(folder, control["owner_scope"], args.limit, args.all)
+                if args.command == "goals" else
+                read_episodes(folder, control["owner_scope"], args.limit, args.goal_id))
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
         return 0
     with exclusive(folder):
         control = load_control(folder)
@@ -174,15 +248,13 @@ def main(argv=None):
             print("配置已存在，保持原样。")
             return 0
         if args.command == "configure":
-            for field in ("owner_scope", "owner_id", "phone_url", "bili_url", "device_id",
-                          "check_minutes", "check_jitter_minutes", "max_videos", "max_minutes"):
+            for field in ("owner_scope", "owner_id", "phone_url", "bili_url", "device_id", *NUMERIC_LIMITS):
                 value = getattr(args, field)
                 if value is not None:
-                    limits = {"check_minutes": 1440, "check_jitter_minutes": 1440,
-                              "max_videos": 10, "max_minutes": 30}
-                    low = 0 if field == "check_jitter_minutes" else 1
-                    if field in limits and not low <= value <= limits[field]:
-                        raise ValueError(f"{field} must be between {low} and {limits[field]}")
+                    if field in NUMERIC_LIMITS:
+                        low, high = NUMERIC_LIMITS[field]
+                        if not low <= value <= high:
+                            raise ValueError(f"{field} must be between {low} and {high}")
                     if field in {"phone_url", "bili_url"}:
                         validate_url(value)
                     if field == "device_id" and value != "emulator-5554":
@@ -208,6 +280,10 @@ def main(argv=None):
         elif args.command == "disable-periodic":
             control["periodic_enabled"] = False
         elif args.command == "switch":
+            if args.name == "life_enabled" and args.value == "on":
+                ready(control)
+                if control["one_shot_verified"] is not True:
+                    raise ValueError("先完成已有 B 站一次性活动验收，再开启持续目标功能")
             control[args.name] = args.value == "on"
         elif args.command == "accept-one-shot":
             evidence = json.loads(args.evidence.read_text(encoding="utf-8"))
