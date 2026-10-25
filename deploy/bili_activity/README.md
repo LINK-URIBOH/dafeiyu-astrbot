@@ -1,8 +1,8 @@
 # 大肥鱼 B 站自主活动与截图分享
 
-当前代码为自主生活 **v0.3.0**，在[持续目标、经历与预算](LIFE_V02.md)之上增加[来源笔记、版本与自主续写](LIFE_V03.md)。新功能默认关闭，现有人格、周期与免打扰配置保留。
+当前代码为自主生活 **v0.4.0**，在[持续目标、经历与预算](LIFE_V02.md)、[来源笔记与自主续写](LIFE_V03.md)之上增加[研究方法提炼、版本与复用结果](LIFE_V04.md)。新功能默认关闭，现有人格、周期与免打扰配置保留。
 
-部署进度按时间查看 [VALIDATION.md](VALIDATION.md)：10 月 21 日的接手记录已有 v0.1 部分实机部署与读取结果；10 月 24 日的 v0.2、v0.3 记录是开发环境验证，**本次未执行生产升级，也未补齐真实 QQ/跨日验收**。本 Codex 工作区不是 `/opt/dafeiyu` 的生产主机。早期检查记录见 [AUDIT.md](AUDIT.md)。
+部署进度见 [VALIDATION.md](VALIDATION.md)：2026-10-25 的 v0.3.0 已上线并完成记录中的真实 smoke，Windows/Linux 基线均为 215 项测试 OK。当前 v0.4 methods 合并保留上述修复与验收记录；本次仅做本地合并及回归，未部署 v0.4。methods 的真实 Agent、QQ、记忆及跨日验收仍待完成。早期检查记录见 [AUDIT.md](AUDIT.md)。
 
 ## 文件与部署位置
 
@@ -169,4 +169,4 @@ cd /workspace/dafeiyu-astrbot
 bash -n deploy/bili_activity/deploy.sh deploy/bili_activity/cloud_service.sh
 ```
 
-Windows 开发机可直接用 `.venv\Scripts\python.exe -m unittest discover -s tests -p "test_bili_*.py"`。作品 Markdown 导出部署在云端 Linux，依赖 `dir_fd`、`O_DIRECTORY` 和 `O_NOFOLLOW`；Windows 回归会跳过导出成功及符号链接防护测试，其余作品检查仍执行。原有测试含导入替身，分进程执行，避免污染其他测试。MCP 和 ffmpeg 使用实际本机协议/进程；B 站、QQ、模型和 ADB 业务响应在这些测试中使用模拟数据。测试通过不能替代现场联调。
+Windows 开发机可直接用 `.venv\Scripts\python.exe -m unittest discover -s tests -p "test_bili_*.py"`（2026-10-25 实测 **215 项 OK、11 跳过**；Linux 215 项 OK、6 跳过）。作品 Markdown 导出部署在云端 Linux，依赖 `dir_fd`、`O_DIRECTORY` 和 `O_NOFOLLOW`；Windows 回归会跳过导出成功及符号链接防护测试，其余作品检查仍执行。原有测试含导入替身，分进程执行，避免污染其他测试。MCP 和 ffmpeg 使用实际本机协议/进程；B 站、QQ、模型和 ADB 业务响应在这些测试中使用模拟数据。测试通过不能替代现场联调。
