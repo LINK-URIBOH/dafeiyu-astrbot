@@ -163,6 +163,14 @@ class WorkshopIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(after, before)
         self.delivery.send.assert_not_called()
 
+    async def test_revise_accepts_decoded_source_ids_list(self):
+        _, source, work = await self.seed()
+        revised = json.loads(await self.plugin.workshop(
+            FakeEvent(), "revise", work_id=work["id"], body=self.body(source),
+            source_ids=[source["id"]], expected_revision=work["revision"]))
+        self.assertTrue(revised["validation"]["passed"])
+        self.assertEqual(revised["source_ids"], [source["id"]])
+
     async def test_corrected_sources_block_share_export_and_completion_despite_old_read(self):
         goal, source, work = await self.seed()
         work = await self.write(work, source)

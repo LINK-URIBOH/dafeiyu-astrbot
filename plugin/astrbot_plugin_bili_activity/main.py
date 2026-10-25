@@ -64,6 +64,20 @@ UNLABELLED_SERVERS = {"", "unlabelled"}
 
 def normalized_server_name(value):
     return re.sub(r"[^a-z0-9]+", "", str(value).strip().lower())
+
+
+def parse_json_argument(value, name, expected):
+    """Accept both decoded JSON and its string form from the tool layer."""
+    if isinstance(value, expected):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError(f"{name} must be a JSON {'object' if expected is dict else 'array'}") from exc
+        if isinstance(parsed, expected):
+            return parsed
+    raise ValueError(f"{name} must be a JSON {'object' if expected is dict else 'array'}")
 SCREEN_REQUEST = re.compile(r"^(?:肥鱼[，, ]*|大肥鱼[，, ]*)?(?:截个屏|截图看看|让我看看你在看什么|截屏看看)[。！!～~ ]*$")
 PROMPT = """这是你自己的B站活动，不是主人发来的新消息。沿用当前人格与最近聊天。
 先根据最近聊天、你自己的兴趣和近期记录判断现在是否想逛；不想逛允许安静结束。
@@ -756,7 +770,8 @@ class BiliActivity(Star):
         """
         self.check_owner(event)
         self.require_goal(event)
-        value = await self.bili().json_call("bili_read", {"operation": operation, "args": json.loads(arguments)})
+        args = parse_json_argument(arguments, "arguments", dict)
+        value = await self.bili().json_call("bili_read", {"operation": operation, "args": args})
         if isinstance(value, dict) and value.get("ok") is False:
             self.store.event(event.unified_msg_origin, "read_failed",
                              {"operation": operation, "error": value.get("error")})
@@ -785,7 +800,7 @@ class BiliActivity(Star):
             await self.pause_background("主人请求B站导航")
         if operation not in {"home", "following", "open_video", "current", "status"}:
             raise ValueError("unsupported navigation")
-        args = json.loads(arguments)
+        args = parse_json_argument(arguments, "arguments", dict)
         run_id = event.get_extra("df_run_id")
         if operation == "open_video" and run_id:
             selected = self.run_videos.get(run_id, set())
@@ -890,7 +905,7 @@ class BiliActivity(Star):
             raise ValueError("unsupported action")
         if not (cfg["public_interactions"] if action in PUBLIC else cfg["collection_management"]):
             return "对应互动开关尚未开启。"
-        args = json.loads(arguments)
+        args = parse_json_argument(arguments, "arguments", dict)
         preview = await self.bili().json_call("bili_preview", {"action": action, "args": args})
         if preview.get("ok") is False:
             return canonical({"proposal_created": False, "error": preview.get("error"),
@@ -1217,7 +1232,7 @@ class BiliActivity(Star):
             raise ValueError("只能推进本轮选定目标的作品")
         if action == "revise":
             self.require_goal(event)
-            sources = json.loads(source_ids)
+            sources = parse_json_argument(source_ids, "source_ids", list)
             request_key = digest([scope, work_id, run_id or str(getattr(event.message_obj, "message_id", "")),
                                   expected_revision, body, sources])
             result = workshop.revise(scope, work_id, body, sources, expected_revision, request_key,
