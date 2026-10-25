@@ -182,6 +182,22 @@ class LifeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "SELECT details FROM events WHERE scope=? AND kind='read_failed'", (SCOPE,)).fetchone()
         self.assertEqual(json.loads(audit[0]), {"error": "TimeoutError", "operation": "home"})
 
+    async def test_read_accepts_decoded_and_string_json_arguments(self):
+        event = self.begin()
+        await self.create(event)
+        self.backend.json_call.side_effect = None
+        self.backend.json_call.return_value = {"identity": {"bvid": "BVexample", "cid": 1}, "items": []}
+
+        result = json.loads(await self.plugin.read(event, "home", {}))
+        self.assertEqual(result["items"], [])
+        self.assertEqual(self.backend.json_call.await_args.args[1]["args"], {})
+
+        await self.plugin.read(event, "home", "{}")
+        self.assertEqual(self.backend.json_call.await_args.args[1]["args"], {})
+
+        with self.assertRaisesRegex(ValueError, "JSON object"):
+            await self.plugin.read(event, "home", "[]")
+
     async def test_empty_observation_cannot_create_interest(self):
         event = self.begin()
         await self.create(event)
