@@ -30,6 +30,18 @@ def _text(value, name, maximum=1000, *, empty=False):
     return value.strip()
 
 
+def query_terms(query, maximum=8):
+    """Split a natural query into bounded terms without losing LIKE safety."""
+    terms = []
+    for term in re.split(r"[\W_]+", query, flags=re.UNICODE):
+        term = term.strip()
+        if term and term not in terms:
+            terms.append(term)
+        if len(terms) >= maximum:
+            break
+    return terms
+
+
 def _json(value, name, maximum=24000):
     if not isinstance(value, dict):
         raise ValueError(f"{name} must be an object")
@@ -331,10 +343,15 @@ class LifeState:
             sql += " AND e.goal_id=?"
             args.append(goal_id)
         if query:
-            # Escape LIKE wildcards: user text must not accidentally match every memory.
-            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            sql += " AND (e.evidence_json LIKE ? ESCAPE '\\' OR e.interpretation_json LIKE ? ESCAPE '\\')"
-            args += ["%" + escaped + "%"] * 2
+            # Match any term, across evidence or interpretation. Each term is
+            # escaped so user text cannot accidentally match every memory.
+            terms = query_terms(query) or [query]
+            clauses = []
+            for term in terms:
+                escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                clauses.append("(e.evidence_json LIKE ? ESCAPE '\\' OR e.interpretation_json LIKE ? ESCAPE '\\')")
+                args += ["%" + escaped + "%"] * 2
+            sql += " AND (" + " OR ".join(clauses) + ")"
         sql += " ORDER BY e.occurred_at DESC,e.id LIMIT ?"
         args.append(limit)
         return [self._episode(row) for row in self.db.execute(sql, args)]

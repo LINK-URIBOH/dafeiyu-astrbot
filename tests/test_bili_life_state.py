@@ -218,6 +218,17 @@ class LifeStateTests(unittest.TestCase):
         self.assertEqual(len(self.life.episodes(SCOPE, limit=999)), 21)
         self.assertEqual(self.life.episodes(SCOPE, query="%"), [])
 
+    def test_multi_term_episode_query_matches_any_term_without_wildcards(self):
+        first = self.episode()
+        second = self.life.record_episode(
+            SCOPE, kind="video", source_id="video-2",
+            evidence={"bvid": "BV2", "cid": 200, "range": [0, 20], "title": "势赵云伪装"},
+            interpretation={"thought": "三国杀对局没看懂"})
+        found = self.life.episodes(SCOPE, query="建造，势赵云")
+        self.assertEqual({row["id"] for row in found}, {first["id"], second["id"]})
+        self.assertEqual(self.life.episodes(SCOPE, query="不存在的词"), [])
+        self.assertEqual(self.life.episodes(SCOPE, query="%"), [])
+
     def test_episode_dedup_preserves_original_evidence_and_correction_is_append_only(self):
         original = self.episode()
         repeated = self.life.record_episode(SCOPE, kind="video", source_id="video-1", evidence={"false": "rewrite"})
