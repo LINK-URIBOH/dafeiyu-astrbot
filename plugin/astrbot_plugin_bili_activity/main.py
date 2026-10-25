@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 import json
 import random
 import re
@@ -65,6 +66,213 @@ UNLABELLED_SERVERS = {"", "unlabelled"}
 
 def normalized_server_name(value):
     return re.sub(r"[^a-z0-9]+", "", str(value).strip().lower())
+
+
+TOOL_IMAGE_PREFIX = "[Image from tool '"
+TOOL_IMAGE_PLACEHOLDER = "[较早的工具截图已从上下文移除，以控制模型长度]"
+
+
+def _message_data(message):
+    if hasattr(message, "model_dump"):
+        return message.model_dump()
+    if isinstance(message, dict):
+        return copy.deepcopy(message)
+    return None
+
+
+def _is_tool_image_message(message):
+    if not isinstance(message, dict) or message.get("role") != "user":
+        return False
+    content = message.get("content")
+    if not isinstance(content, list):
+        return False
+    tool_image = False
+    image_url = False
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text" and str(part.get("text", "")).startswith(
+            TOOL_IMAGE_PREFIX
+        ):
+            tool_image = True
+        elif part.get("type") == "image_url":
+            image_url = True
+    return tool_image and image_url
+
+
+def trim_tool_image_contexts(contexts, keep=1):
+    """Return contexts with only the newest tool screenshot retained.
+
+    Phone screenshots are injected as base64 image_url parts.  A text model
+    counts that base64 as ordinary tokens, so several screenshots can exceed
+    the model context even though the conversation itself is small.  Only
+    messages created by the tool loop (recognisable by the text prefix) are
+    touched; images sent by the user are left alone.  The return value is a
+    list of dicts because that is what the provider payload builder expects.
+    """
+    if not isinstance(contexts, list):
+        return contexts
+    trimmed = []
+    positions = []
+    for message in contexts:
+        data = _message_data(message)
+        if data is None:
+            trimmed.append(message)
+            continue
+        if _is_tool_image_message(data):
+            positions.append(len(trimmed))
+        trimmed.append(data)
+    remove = positions[:-keep] if keep > 0 else positions
+    for index in remove:
+        trimmed[index] = {"role": "user", "content": TOOL_IMAGE_PLACEHOLDER}
+    return trimmed
+
+
+def strip_image_parts(contexts):
+    """Remove every image part before a last-resort context retry.
+
+    This intentionally also removes user images: it only runs after the
+    provider has already rejected the request for exceeding the context
+    window, where returning *some* answer matters more than keeping a picture.
+    It accepts both runtime ``Message`` objects and OpenAI-style dicts.
+    """
+    if not isinstance(contexts, list):
+        return contexts
+    stripped = []
+    for message in contexts:
+        data = _message_data(message)
+        if not isinstance(data, dict):
+            stripped.append(message)
+            continue
+        content = data.get("content")
+        if isinstance(content, list):
+            kept = [
+                part
+                for part in content
+                if not (isinstance(part, dict) and part.get("type") == "image_url")
+            ]
+            if len(kept) != len(content):
+                data["content"] = kept or [
+                    {"type": "text", "text": "[图片已从上下文移除]"}
+                ]
+        stripped.append(data)
+    return stripped
+
+
+def trim_tool_image_history(contexts, keep=1):
+    """Trim contexts in place and return how many tool screenshots were removed."""
+    if not isinstance(contexts, list):
+        return 0
+    before = sum(
+        1 for message in contexts if _is_tool_image_message(_message_data(message))
+    )
+    contexts[:] = trim_tool_image_contexts(contexts, keep)
+    after = sum(
+        1 for message in contexts if _is_tool_image_message(_message_data(message))
+    )
+    return max(0, before - after)
+
+
+def install_tool_image_context_guard():
+    """Trim tool screenshots right before every provider payload is built.
+
+    A plugin ``on_llm_request`` hook mutates ``ProviderRequest.contexts`` after
+    the agent runner has already copied its own message list, so the hook alone
+    cannot bound what is sent during a long tool loop.  Wrapping the runner's
+    context sanitizer catches every step, including background agents.
+    """
+    try:
+        from astrbot.core.agent.runners.tool_loop_agent_runner import (
+            ToolLoopAgentRunner,
+        )
+    except Exception:
+        return False
+    original = getattr(ToolLoopAgentRunner, "_sanitize_contexts_for_provider", None)
+    if original is None:
+        return False
+    if getattr(original, "_dafeiyu_tool_image_guard", False):
+        return True
+
+    def sanitize(self, contexts):
+        before = sum(
+            1 for message in contexts if _is_tool_image_message(_message_data(message))
+        ) if isinstance(contexts, list) else 0
+        trimmed = trim_tool_image_contexts(contexts, keep=1)
+        after = sum(
+            1 for message in trimmed if _is_tool_image_message(_message_data(message))
+        ) if isinstance(trimmed, list) else 0
+        if before > after:
+            logger.info(
+                "trimmed %s old tool screenshot(s) before provider request",
+                before - after,
+            )
+        return original(self, trimmed)
+
+    sanitize._dafeiyu_tool_image_guard = True
+    ToolLoopAgentRunner._sanitize_contexts_for_provider = sanitize
+
+    # Last-resort recovery: if a provider still reports a context-length error
+    # (for example an OpenAI-compatible model that counts base64 as text),
+    # remove historical images before the normal "pop oldest message" retry.
+    try:
+        from astrbot.core.provider.sources.openai_source import (
+            ProviderOpenAIOfficial,
+        )
+    except Exception:
+        ProviderOpenAIOfficial = None
+    original_error_handler = (
+        getattr(ProviderOpenAIOfficial, "_handle_api_error", None)
+        if ProviderOpenAIOfficial is not None
+        else None
+    )
+    if original_error_handler is not None and not getattr(
+        original_error_handler, "_dafeiyu_image_fallback", False
+    ):
+
+        async def handle_api_error(
+            self,
+            e,
+            payloads,
+            context_query,
+            func_tool,
+            chosen_key,
+            available_api_keys,
+            retry_cnt,
+            max_retries,
+            image_fallback_used=False,
+        ):
+            message = str(e)
+            if "maximum context length" in message or "context length" in message.lower():
+                context_query = strip_image_parts(context_query)
+                payloads["messages"] = context_query
+                logger.warning("上下文超限：已移除历史图片并重试")
+                return (
+                    False,
+                    chosen_key,
+                    available_api_keys,
+                    payloads,
+                    context_query,
+                    func_tool,
+                    image_fallback_used,
+                )
+            return await original_error_handler(
+                self,
+                e,
+                payloads,
+                context_query,
+                func_tool,
+                chosen_key,
+                available_api_keys,
+                retry_cnt,
+                max_retries,
+                image_fallback_used,
+            )
+
+        handle_api_error._dafeiyu_image_fallback = True
+        ProviderOpenAIOfficial._handle_api_error = handle_api_error
+
+    logger.info("installed tool screenshot context guard")
+    return True
 
 
 def parse_json_argument(value, name, expected):
@@ -158,6 +366,10 @@ class GuardedPhoneTool(FunctionTool):
 class BiliActivity(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
+        try:
+            install_tool_image_context_guard()
+        except Exception as exc:
+            logger.warning("tool screenshot context guard failed: %s", exc)
         self.context = context
         self.folder = StarTools.get_data_dir("astrbot_plugin_bili_activity")
         self.store = Store(self.folder)
@@ -709,6 +921,9 @@ class BiliActivity(Star):
 
     @filter.on_llm_request(priority=-100)
     async def guard_phone(self, event: AstrMessageEvent, req):
+        trimmed = trim_tool_image_history(getattr(req, "contexts", None), keep=1)
+        if trimmed:
+            logger.info("trimmed %s old tool screenshot(s) from LLM context", trimmed)
         cfg = self.cfg()
         for tool in list(req.func_tool.tools if req.func_tool else []):
             if tool.name in METHOD_TOOLS and (not self.methods_enabled(cfg) or event.unified_msg_origin != cfg["owner_scope"]):

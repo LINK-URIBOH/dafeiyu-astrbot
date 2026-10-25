@@ -604,5 +604,95 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         persist.assert_not_awaited()
 
 
+class ToolImageTrimTests(unittest.TestCase):
+    @staticmethod
+    def tool_image(path):
+        return {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": f"[Image from tool 'get_screenshot', path='{path}']"},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}},
+            ],
+        }
+
+    def test_keeps_only_newest_tool_screenshot_and_preserves_user_images(self):
+        contexts = [
+            {"role": "user", "content": "最近聊天"},
+            self.tool_image("old-1.jpg"),
+            self.tool_image("old-2.jpg"),
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "主人发的图"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,BBBB"}},
+                ],
+            },
+            self.tool_image("newest.jpg"),
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "[Image from tool 'get_screenshot', path='no-data.jpg']"},
+                ],
+            },
+        ]
+        removed = main.trim_tool_image_history(contexts, keep=1)
+        self.assertEqual(removed, 2)
+        self.assertEqual(contexts[1]["content"], main.TOOL_IMAGE_PLACEHOLDER)
+        self.assertEqual(contexts[2]["content"], main.TOOL_IMAGE_PLACEHOLDER)
+        self.assertEqual(contexts[3]["content"][0]["text"], "主人发的图")
+        self.assertEqual(contexts[4]["content"][0]["text"].split("path='")[1], "newest.jpg']")
+        self.assertIn("no-data.jpg", contexts[5]["content"][0]["text"])
+
+    def test_keep_zero_removes_all_tool_screenshots(self):
+        contexts = [self.tool_image("a.jpg"), self.tool_image("b.jpg")]
+        self.assertEqual(main.trim_tool_image_history(contexts, keep=0), 2)
+        self.assertEqual(contexts, [{"role": "user", "content": main.TOOL_IMAGE_PLACEHOLDER}] * 2)
+
+    def test_provider_message_objects_are_converted_and_trimmed(self):
+        class Message:
+            def __init__(self, data):
+                self.data = data
+
+            def model_dump(self):
+                return self.data
+
+        contexts = [
+            Message(self.tool_image("old.jpg")),
+            Message({"role": "assistant", "content": "继续"}),
+            Message(self.tool_image("new.jpg")),
+        ]
+        trimmed = main.trim_tool_image_contexts(contexts, keep=1)
+        self.assertEqual(trimmed[0]["content"], main.TOOL_IMAGE_PLACEHOLDER)
+        self.assertEqual(trimmed[1], {"role": "assistant", "content": "继续"})
+        self.assertIn("new.jpg", trimmed[2]["content"][0]["text"])
+
+    def test_strip_image_parts_removes_all_images_for_context_retry(self):
+        contexts = [
+            self.tool_image("old.jpg"),
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "主人发的图"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,BBBB"}},
+                ],
+            },
+            {"role": "assistant", "content": "还在"},
+        ]
+        stripped = main.strip_image_parts(contexts)
+        self.assertEqual(len(stripped), 3)
+        for message in stripped[:2]:
+            self.assertFalse(
+                any(
+                    isinstance(part, dict) and part.get("type") == "image_url"
+                    for part in message["content"]
+                )
+            )
+        self.assertEqual(stripped[1]["content"][0]["text"], "主人发的图")
+        self.assertEqual(stripped[2], {"role": "assistant", "content": "还在"})
+
+    def test_non_list_context_is_ignored(self):
+        self.assertEqual(main.trim_tool_image_history(None), 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
