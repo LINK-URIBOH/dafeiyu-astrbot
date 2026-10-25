@@ -30,15 +30,27 @@ def _text(value, name, maximum=1000, *, empty=False):
     return value.strip()
 
 
+CJK = re.compile(r"[㐀-鿿]")
+
+
 def query_terms(query, maximum=8):
-    """Split a natural query into bounded terms without losing LIKE safety."""
+    """Split a natural query into bounded terms without losing LIKE safety.
+
+    Chinese text often arrives without spaces (for example
+    "比格自助三国杀"), so add two-character windows from longer CJK terms.
+    """
     terms = []
+
+    def add(term):
+        if term and term not in terms and len(terms) < maximum:
+            terms.append(term)
+
     for term in re.split(r"[\W_]+", query, flags=re.UNICODE):
         term = term.strip()
-        if term and term not in terms:
-            terms.append(term)
-        if len(terms) >= maximum:
-            break
+        add(term)
+        if CJK.search(term) and len(term) >= 4:
+            for index in range(len(term) - 1):
+                add(term[index:index + 2])
     return terms
 
 
