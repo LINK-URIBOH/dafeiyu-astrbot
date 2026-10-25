@@ -22,6 +22,7 @@ DEFAULTS = {
     "screenshot_enabled": True,
     "life_enabled": False,
     "workshop_enabled": False,
+    "methods_enabled": False,
     "workshop_revisions_per_run": 3,
     "workshop_max_characters": 12000,
     "daily_minutes": 30,
@@ -228,6 +229,58 @@ def read_work(folder, scope, work_id, revision=None):
     return {**work, **version, "head_revision": work["revision"], "validation_is_cached": True}
 
 
+def read_methods(folder, scope, limit=8):
+    """Read historical counts; runtime source validation is deliberately absent."""
+    rows = read_rows(folder,
+                     "SELECT m.id,m.title,m.status,m.revision,m.created_at,m.updated_at,"
+                     "(SELECT count(*) FROM method_attempts a WHERE a.scope=m.scope AND a.method_id=m.id "
+                     "AND a.revision=m.revision AND a.status='success') AS recorded_success_count "
+                     "FROM research_methods m WHERE m.scope=? ORDER BY m.updated_at DESC,m.id LIMIT ?",
+                     (scope, limit), optional_table="research_methods")
+    return [{**row, "evidence_rechecked": False} for row in rows]
+
+
+def read_method(folder, scope, method_id, revision=None):
+    if not re.fullmatch(r"[0-9a-f]{32}", method_id):
+        raise ValueError("方法 ID 格式无效")
+    if revision is not None and not 1 <= revision <= 20:
+        raise ValueError("revision must be between 1 and 20")
+    methods = read_rows(folder,
+                        "SELECT id,title,status,revision,created_at,updated_at FROM research_methods "
+                        "WHERE scope=? AND id=?", (scope, method_id), optional_table="research_methods")
+    if not methods:
+        raise ValueError("当前会话没有此方法或版本")
+    method = methods[0]
+    selected = method["revision"] if revision is None else revision
+    versions = read_rows(folder,
+                         "SELECT revision,work_id,work_revision,work_hash,source_goal_id,title,"
+                         "applies_to,steps_json,limitations,created_at FROM method_revisions "
+                         "WHERE scope=? AND method_id=? AND revision=?", (scope, method_id, selected))
+    if not versions:
+        raise ValueError("当前会话没有此方法或版本")
+    version = versions[0]
+    version["steps"] = json.loads(version.pop("steps_json"))
+    version["revision_created_at"] = version.pop("created_at")
+    counts = read_rows(folder,
+                       "SELECT count(*) AS count FROM method_attempts WHERE scope=? AND method_id=? "
+                       "AND revision=? AND status='success'", (scope, method_id, selected))
+    return {**method, **version, "head_revision": method["revision"],
+            "recorded_success_count": counts[0]["count"], "evidence_rechecked": False}
+
+
+def read_method_attempts(folder, scope, limit=8, goal_id=None):
+    if goal_id is not None and not re.fullmatch(r"[0-9a-f]{32}", goal_id):
+        raise ValueError("目标 ID 格式无效")
+    where = " AND goal_id=?" if goal_id else ""
+    params = (scope, goal_id, limit) if goal_id else (scope, limit)
+    rows = read_rows(folder,
+                     "SELECT id,method_id,revision,goal_id,run_id,started_at,status,"
+                     "baseline_work_id,baseline_revision,baseline_hash,result_work_id,result_revision,"
+                     "result_hash,summary,finished_at FROM method_attempts WHERE scope=?" + where
+                     + " ORDER BY started_at DESC,id LIMIT ?", params, optional_table="method_attempts")
+    return [{**row, "evidence_rechecked": False} for row in rows]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=Path(DEFAULT_DATA_DIR))
@@ -246,7 +299,7 @@ def main(argv=None):
     once = sub.add_parser("once")
     once.add_argument("--delay-seconds", type=int, default=180)
     switches = sub.add_parser("switch")
-    switches.add_argument("name", choices=["public_interactions", "collection_management", "screenshot_enabled", "life_enabled", "workshop_enabled"])
+    switches.add_argument("name", choices=["public_interactions", "collection_management", "screenshot_enabled", "life_enabled", "workshop_enabled", "methods_enabled"])
     switches.add_argument("value", choices=["on", "off"])
     accepted = sub.add_parser("accept-one-shot")
     accepted.add_argument("--evidence", type=Path, required=True,
@@ -264,6 +317,14 @@ def main(argv=None):
     work = sub.add_parser("work", help="只读查看作品正文与已保存版本；不重新核验来源")
     work.add_argument("work_id")
     work.add_argument("--revision", type=int)
+    methods = sub.add_parser("methods", help="只读查看当前私聊的方法；历史成功次数未重新核验")
+    methods.add_argument("--limit", type=int, default=8)
+    method = sub.add_parser("method", help="只读查看方法版本、来源与步骤；不重新核验来源")
+    method.add_argument("method_id")
+    method.add_argument("--revision", type=int)
+    attempts = sub.add_parser("method-attempts", help="只读查看方法尝试记录，不恢复或结束活动")
+    attempts.add_argument("--limit", type=int, default=8)
+    attempts.add_argument("--goal-id")
     args = parser.parse_args(argv)
     folder = args.data_dir.resolve()
     if args.command == "logs":
@@ -279,8 +340,23 @@ def main(argv=None):
                           "goals": read_goals(folder, control["owner_scope"]),
                           "episodes": read_episodes(folder, control["owner_scope"]),
                           "budget": read_budget(folder, control["owner_scope"]),
-                          "works": read_works(folder, control["owner_scope"])},
+                          "works": read_works(folder, control["owner_scope"]),
+                          "methods": read_methods(folder, control["owner_scope"]),
+                          "method_attempts": read_method_attempts(folder, control["owner_scope"])},
                          ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "method":
+        control = load_control(folder)
+        print(json.dumps(read_method(folder, control["owner_scope"], args.method_id, args.revision),
+                         ensure_ascii=False, indent=2))
+        return 0
+    if args.command in {"methods", "method-attempts"}:
+        control = load_control(folder)
+        if not 1 <= args.limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        rows = (read_methods(folder, control["owner_scope"], args.limit) if args.command == "methods" else
+                read_method_attempts(folder, control["owner_scope"], args.limit, args.goal_id))
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
         return 0
     if args.command == "work":
         control = load_control(folder)
@@ -348,6 +424,10 @@ def main(argv=None):
                 ready(control)
                 if control["life_enabled"] is not True or control["one_shot_verified"] is not True:
                     raise ValueError("先完成一次性活动验收并开启 life_enabled，再开启文字创作")
+            if args.name == "methods_enabled" and args.value == "on":
+                ready(control)
+                if any(control[key] is not True for key in ("life_enabled", "workshop_enabled", "one_shot_verified")):
+                    raise ValueError("先完成一次性活动验收并开启 life_enabled、workshop_enabled，再开启方法复用")
             control[args.name] = args.value == "on"
         elif args.command == "accept-one-shot":
             evidence = json.loads(args.evidence.read_text(encoding="utf-8"))

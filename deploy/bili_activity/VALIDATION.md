@@ -1,6 +1,85 @@
 # 本次验证与部署记录
 
-## 2026-10-24 学习与创作 v0.3 代码交付
+## 2026-10-25 v0.3.0 上线与真实 smoke
+
+代码已合并到 main 并部署到华为云 `/opt/dafeiyu`：
+
+- PR #2 `32f8349`：v0.3.0 首次进入 main
+- PR #4 `8781ac8`：工具 JSON 参数兼容
+- PR #5 `6ddacd6`：多词 recall
+- PR #6 `f088fdd`：无空格中文二字窗口
+- 部署备份：`/opt/dafeiyu/backups/bili-activity-20261025T130419.236083Z.tar.gz`
+
+| 检查 | 实际结果 | 范围 |
+| --- | --- | --- |
+| Windows `test_bili_*.py` | **215 项 OK，11 跳过** | mcp 1.26；Linux-only export 测试按设计跳过 |
+| Linux `test_bili_*.py` | **215 项 OK，6 跳过** | 云主机临时目录；export/符号链接测试实际执行；ffmpeg 缺失跳过 |
+| AstrBot 插件加载 | 通过 | v4.29.0，`astrbot_plugin_bili_activity v0.3.0`，12 个 `df_*` 工具 |
+| SQLite 迁移 | 通过 | `user_version=1`，goals/episodes/activity_budget_* 存在 |
+| QQ / WS | 通过 | 小号 248093506 恢复；`aiocqhttp` 已连接 |
+
+真实 smoke 证据：
+
+- 失败 read `invalid_test`：只写 `read_failed`（`operation=invalid_test`），`read` episode 为 0；
+- 群聊 1105352914：无 `list_devices`，`df_screen` 被“仅主人私聊”拒绝；
+- life run `122ca7125a7a4635be2b3fbaac4555fa`：completed；目标 `def033f00f824c4dabf67c3d650a8330`；2 条视频 + 弹幕/评论；截图回执 `message_id=1693155839`、`verified=true`、`image_readback=true`、`recipient_confirmed=false`；预算约 65 秒/12 次模型/1 分享/1 截图；episodes 10（read 2）；`video_verified=false`，未冒充手机正在播放；
+- workshop：work `f99232fccadb4d64998a3542822c31ff`，revision 1，4 个来源，三节结构，`passed=true`；
+- export：`works/f992.../r1.md`，19,117 字节，sha256 `6e055c193d626a234ca928db74b7fa57c5bbb89af88e3ec5fd2c934eee742806`；
+- share：`message_id=1161581486`，`status=sent`，`qq_file_sent=false`（只发摘录）；
+- 手机离线写作 run `36e9340ed6b34b5c974e7bebcdbba9dd`：completed；读回 r1，`df_recall` 空时调用 `need_sources` 退回 research，未硬凑新版本；无 PhoneMCP 调用；
+- recall 修复后 owner 私聊 `query=比格自助三国杀` 已返回多条 episode（含势赵云视频笔记/read）。
+
+当前开关：`enabled=true`、`periodic_enabled=true`、`life_enabled=true`、`workshop_enabled=true`、`one_shot_verified=true`。
+
+尚未验收：跨日预算、真实账号写入/提议、LivingMemory 实际保存/召回、`browser-use` MCP；`df_recall` 仍是词面检索（已支持多词/无空格中文），不宣称语义召回。其他插件日志中的知识库 400 错误不计入本插件验收。
+
+## 2026-10-25 v0.4 合并到当前 main 修复基线（本地）
+
+在 `codex/v04-rebased`（`main-current=6da07f3`）上，以共同祖先 `f7065fe` 三方合并 `v04-import=4ff19b6`。常规 `git merge --no-commit --no-ff v04-import` 因 `.git/ORIG_HEAD.lock` 写入被拒绝而未建立合并状态；随后仅完成工作树文件合并，没有绕过 `.git` 权限、创建提交、push 或部署。
+
+本地 `6da07f3` 尚未包含文档提交 `0506d8f`（`codex/docs-20261025`），因此一并纳入该提交的真实 smoke 和 215 项测试记录。文档冲突保留完整 smoke 段落，再追加 methods 说明；旧 202/243 项及未部署说明只保留为原始分支历史。
+
+- `main.py` 在当前实现上追加 methods 工具、开关、恢复和结果核验；保留 owner/raw Bili 工具隔离、失败 read、目标状态默认值、作品创建 key、share 配文前置校验、JSON 参数兼容和 `runs` 插入的 try 范围。
+- `life.py`、`workshop.py` 及原有 14 个 `test_bili_*.py` 与当前 main 内容一致，包含失败来源拒绝、目标完成转换、多词/CJK recall、检查事务和 Windows export 跳过逻辑。
+- 新增 `methods.py`、`LIFE_V04.md`、三份 methods 测试及 ops 查询/开关。`df_method.steps` 使用 `parse_json_argument(steps, "steps", list)`；额外两项回归验证列表创建/修订、字符串与列表幂等，以及非数组输入不落库。
+
+使用指定解释器 `C:\Users\ACER\AppData\Local\Temp\dafeiyu-venv\Scripts\python.exe`，mcp **1.26.0**：
+
+```powershell
+python.exe -m unittest discover -s tests -p "test_bili_*.py"
+```
+
+| 检查 | 本次实际结果 | 范围与限制 |
+| --- | --- | --- |
+| 全量测试 | **258 项：246 通过、11 跳过、1 失败，0 error** | 215 项基线 + 41 项 methods + 2 项参数回归；13.625 秒 |
+| 唯一失败 | `test_deploy_preserves_config_and_archives_live_database` | Git Bash 启动即报 `CreateFileMapping … Win32 error 5`，未进入部署脚本；不属于业务断言不符 |
+| 跳过 | 6 项 ffmpeg、4 项 Linux export、1 项 Windows symlink | 保持现有跳过条件，没有为本次失败添加 skip |
+| 源码保全与语法 | 通过 | `life.py`、`workshop.py`、原有 14 份测试内容比对；新增/修改 Python 的 AST 解析；`git diff --check` |
+
+首次直接运行受 Python 3.12.15 的 Windows `tempfile` 私有目录 ACL 与沙箱令牌不兼容影响，SQLite 无法打开临时库。上表复跑将 `TEMP`/`TMP` 指向工作区 `.test-tmp`，通过本地 `sitecustomize.py` 仅让 `tempfile` 在该目录内创建的子目录继承工作区 ACL；没有修改应用 `os.mkdir`、既有 ACL、测试断言或 skip 条件。测试日志为工作区 `v04-merge-tests.log`。首次失败产生的空临时目录因权限限制无法清理，保留在 `.test-tmp`；本地探针 `.probe-private` 同样为空且无法清理。
+
+结论：methods 与已有修复回归通过，但本次全量不是全绿，需在可正常启动 Git Bash 的环境重跑部署测试。v0.4 methods 尚未执行生产 Agent/QQ/LivingMemory 或跨日验收；上方 v0.3.0 的真实 smoke 和 215 项历史结论保持有效，不将它们冒充本次新测试结果。
+
+## 2026-10-25 研究方法复用 v0.4 原始代码交付（导入前历史）
+
+以下为 v0.4 导入树原有的开发记录，基于旧 v0.3 提交 `f7065fe61e6a631c33c10a38fe4604caaa78aada`，开发分支 `codex/research-methods-v04-20261025`。其中 202/243 项仅代表原始分支的历史测试，不能代替上方当前主线的 215 项基线或本次合并后的回归结果；“未升级生产”仅指这次 methods 开发，不否定 v0.3.0 已上线的真实 smoke。
+
+新增方法库及 `df_method`：从完成且来源可核对的作品保存研究步骤；在不同目标绑定方法版本与尝试；对尝试后的新作品及不同内容来源回查，保存成功、失败或放弃结果。沿用原生 Agent、目标与作品、模型/时间/分享预算和会话隔离的记忆队列，默认 `methods_enabled=false`。
+
+| 检查 | 实际结果 | 范围 |
+| --- | --- | --- |
+| 恢复后重跑 v0.3 的 `test_bili*.py` | 202 项通过 | 验证恢复后的原基线 |
+| 完整 `python -m unittest discover -s tests -p 'test_bili*.py'` | **243 项通过** | 原 202 项 + 本次 41 项：方法存储 19、插件集成 13、运维 9 |
+| `python -m pip check` | 无损坏依赖 | 复用既有 Python 3.12 venv；缓存目录不可写提示不影响检查 |
+| Python `compileall`、`git diff --check` | 通过 | 插件、运维脚本、新增测试和差异格式 |
+
+完整离线流程使用真实控制器和 SQLite：完成来源目标与有引用作品 → 提炼待复用方法 → 新目标选用方法 → 记录不同内容来源 → 保存本次新作品 → 完成目标时自动核验结果 → 方法有效复用次数变为 1 → 写入一次方法结果经历及记忆队列 → 重复结果调用不增加记录。另一个两轮用例在手机锁被前台持有时续写，中间重开数据库，恢复同一尝试和方法版本，最后完成并计数一次。
+
+还验证了：新方法版本独立计数、旧版本恢复不被替换、来源修订后当前有效次数失效、同目标不能切方法刷次数、仅复制旧内容或更换经历 ID 不足以计数、模型自报成功被拒绝、方法退役和关闭开关阻止继续调用、失败记录不算成功、作用域隔离、既有模型额度、只读 CLI 不迁移或恢复目标、新增结构前一致性备份。
+
+模型、QQ 和设备业务响应仍为测试替身；记忆队列落盘不等于 LivingMemory 已保存并召回。方法步骤是文本资料，不是代码执行接口。计数证明有合格的新产物记录，不证明研究方法的因果有效性或作品结论正确。原 MCP SDK 的非致命弃用和类型解析提示仍存在。真实 Agent 自选方法、生产重启跨日运行、QQ 实收、记忆保存/召回均未在本次验收；现场步骤和开关见 [LIFE_V04.md](LIFE_V04.md)。
+
+## 2026-10-24 学习与创作 v0.3 代码交付（历史）
 
 基于已上传的 v0.2 提交 `89d9cca`，开发分支 `codex/creative-life-v03-20261024`。本次在隔离 Linux 工作区实现第二种持续活动：把同一私聊中真实读取的经历整理为文字笔记，保存版本、检验引用、导出 Markdown，并通过原 QQ 接口分享文字摘录。`workshop_enabled=false` 默认关闭，未更改实际生产配置或其他暂停任务。
 

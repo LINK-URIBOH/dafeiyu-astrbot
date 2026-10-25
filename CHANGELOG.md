@@ -2,6 +2,24 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-25 · 自主生活 v0.3.0 上线与真实 smoke
+
+- 合并 PR #2（`32f8349`）到 main，v0.3.0 首次进入主线；随后合并 PR #4（`8781ac8`，工具 JSON 参数兼容）、PR #5（`6ddacd6`，多词 recall）和 PR #6（`f088fdd`，无空格中文二字窗口）。
+- 修复真实 smoke 发现的问题：phone 工具 owner 隔离、raw Bili MCP 工具移除、失败 read 只写 `read_failed`、`ready/paused → completed`、`df_goal` 默认状态、`df_workshop` 幂等与参数兼容、`Workshop.check` 原子化。
+- 云端部署 v0.3.0：AstrBot v4.29.0 加载成功，12 个 `df_*` 工具注册，SQLite schema v1；QQ 恢复，PhoneMCP 18 工具连接。
+- 真实 smoke：life run `122ca7125a7a4635be2b3fbaac4555fa` completed（目标 `def033...`，2 条视频 + 弹幕/评论，截图回执 `1693155839`）；workshop work `f992...` revision 1（4 个来源，检查通过）；export/share 通过；手机离线写作 run `36e934...` completed，正确 `need_sources` 回 research，无手机调用。
+- 测试：Windows/Linux 均 **215 项 OK**（Windows 11 跳过，Linux 6 跳过；mcp 1.26）。
+- 未验收：跨日预算、真实账号写入/提议、LivingMemory 实际召回、browser-use MCP；`df_recall` 仍是词面检索，不宣称语义召回。
+
+## 2026-10-25 · 自主生活插件 v0.4.0
+
+- 新增 `df_method`：从已完成且来源有效的作品提炼研究方法，保存适用条件、最多 6 步文字建议、停止条件及来源版本，刚提炼时标为待复用。
+- 方法尝试绑定另一个目标和固定版本，沿用原生 Agent、已有工具和预算。暂停后继续同一尝试；修改方法不会替换旧尝试的版本。
+- 目标完成时回查尝试之后产生的新作品、不同内容来源及原始方法依据，重复调用、旧作品或模型自报成功不能增加次数。当前有效次数与历史记载次数分开，来源失效后重新计算。
+- 运行中关闭开关或方法来源失效时阻止继续套用；退役保留历史。成功、失败与放弃记录进入原有按会话隔离的记忆队列。
+- 新增 `methods_enabled=false`、只读方法及尝试查询。独立表新增前一致性备份，不修改原权限、配置和暂停任务。方法是文字资料，不是代码执行接口。
+- 本次只完成代码和离线验证，生产升级及真实 Agent/QQ/记忆验收仍待现场完成，见 `deploy/bili_activity/LIFE_V04.md`。
+
 ## 2026-10-24 · 自主生活插件 v0.3.0
 
 - 新增 `df_workshop`：根据当前私聊真实阅读经历创建研究笔记，保存不可覆盖的正文版本和来源，支持检查、受控 Markdown 导出和 QQ 私聊摘录分享。
