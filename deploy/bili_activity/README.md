@@ -169,4 +169,4 @@ cd /workspace/dafeiyu-astrbot
 bash -n deploy/bili_activity/deploy.sh deploy/bili_activity/cloud_service.sh
 ```
 
-Windows 开发机可直接用 `.venv\Scripts\python.exe -m unittest discover -s tests -p "test_bili_*.py"`。作品 Markdown 导出部署在云端 Linux，依赖 `dir_fd`、`O_DIRECTORY` 和 `O_NOFOLLOW`；Windows 回归会跳过导出成功及符号链接防护测试，其余作品检查仍执行。原有测试含导入替身，分进程执行，避免污染其他测试。MCP 和 ffmpeg 使用实际本机协议/进程；B 站、QQ、模型和 ADB 业务响应在这些测试中使用模拟数据。测试通过不能替代现场联调。
+Windows 开发机可直接用 `.venv\Scripts\python.exe -m unittest discover -s tests -p "test_bili_*.py"`（2026-10-25 实测 **215 项 OK、11 跳过**；Linux 215 项 OK、6 跳过）。作品 Markdown 导出部署在云端 Linux，依赖 `dir_fd`、`O_DIRECTORY` 和 `O_NOFOLLOW`；Windows 回归会跳过导出成功及符号链接防护测试，其余作品检查仍执行。原有测试含导入替身，分进程执行，避免污染其他测试。MCP 和 ffmpeg 使用实际本机协议/进程；B 站、QQ、模型和 ADB 业务响应在这些测试中使用模拟数据。测试通过不能替代现场联调。

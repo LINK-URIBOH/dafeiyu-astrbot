@@ -1,6 +1,39 @@
 # 本次验证与部署记录
 
-## 2026-10-24 学习与创作 v0.3 代码交付
+## 2026-10-25 v0.3.0 上线与真实 smoke
+
+代码已合并到 main 并部署到华为云 `/opt/dafeiyu`：
+
+- PR #2 `32f8349`：v0.3.0 首次进入 main
+- PR #4 `8781ac8`：工具 JSON 参数兼容
+- PR #5 `6ddacd6`：多词 recall
+- PR #6 `f088fdd`：无空格中文二字窗口
+- 部署备份：`/opt/dafeiyu/backups/bili-activity-20261025T130419.236083Z.tar.gz`
+
+| 检查 | 实际结果 | 范围 |
+| --- | --- | --- |
+| Windows `test_bili_*.py` | **215 项 OK，11 跳过** | mcp 1.26；Linux-only export 测试按设计跳过 |
+| Linux `test_bili_*.py` | **215 项 OK，6 跳过** | 云主机临时目录；export/符号链接测试实际执行；ffmpeg 缺失跳过 |
+| AstrBot 插件加载 | 通过 | v4.29.0，`astrbot_plugin_bili_activity v0.3.0`，12 个 `df_*` 工具 |
+| SQLite 迁移 | 通过 | `user_version=1`，goals/episodes/activity_budget_* 存在 |
+| QQ / WS | 通过 | 小号 248093506 恢复；`aiocqhttp` 已连接 |
+
+真实 smoke 证据：
+
+- 失败 read `invalid_test`：只写 `read_failed`（`operation=invalid_test`），`read` episode 为 0；
+- 群聊 1105352914：无 `list_devices`，`df_screen` 被“仅主人私聊”拒绝；
+- life run `122ca7125a7a4635be2b3fbaac4555fa`：completed；目标 `def033f00f824c4dabf67c3d650a8330`；2 条视频 + 弹幕/评论；截图回执 `message_id=1693155839`、`verified=true`、`image_readback=true`、`recipient_confirmed=false`；预算约 65 秒/12 次模型/1 分享/1 截图；episodes 10（read 2）；`video_verified=false`，未冒充手机正在播放；
+- workshop：work `f99232fccadb4d64998a3542822c31ff`，revision 1，4 个来源，三节结构，`passed=true`；
+- export：`works/f992.../r1.md`，19,117 字节，sha256 `6e055c193d626a234ca928db74b7fa57c5bbb89af88e3ec5fd2c934eee742806`；
+- share：`message_id=1161581486`，`status=sent`，`qq_file_sent=false`（只发摘录）；
+- 手机离线写作 run `36e9340ed6b34b5c974e7bebcdbba9dd`：completed；读回 r1，`df_recall` 空时调用 `need_sources` 退回 research，未硬凑新版本；无 PhoneMCP 调用；
+- recall 修复后 owner 私聊 `query=比格自助三国杀` 已返回多条 episode（含势赵云视频笔记/read）。
+
+当前开关：`enabled=true`、`periodic_enabled=true`、`life_enabled=true`、`workshop_enabled=true`、`one_shot_verified=true`。
+
+尚未验收：跨日预算、真实账号写入/提议、LivingMemory 实际保存/召回、`browser-use` MCP；`df_recall` 仍是词面检索（已支持多词/无空格中文），不宣称语义召回。其他插件日志中的知识库 400 错误不计入本插件验收。
+
+## 2026-10-24 学习与创作 v0.3 代码交付（历史）
 
 基于已上传的 v0.2 提交 `89d9cca`，开发分支 `codex/creative-life-v03-20261024`。本次在隔离 Linux 工作区实现第二种持续活动：把同一私聊中真实读取的经历整理为文字笔记，保存版本、检验引用、导出 Markdown，并通过原 QQ 接口分享文字摘录。`workshop_enabled=false` 默认关闭，未更改实际生产配置或其他暂停任务。
 

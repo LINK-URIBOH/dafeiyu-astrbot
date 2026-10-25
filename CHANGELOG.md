@@ -2,6 +2,15 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-25 · 自主生活 v0.3.0 上线与真实 smoke
+
+- 合并 PR #2（`32f8349`）到 main，v0.3.0 首次进入主线；随后合并 PR #4（`8781ac8`，工具 JSON 参数兼容）、PR #5（`6ddacd6`，多词 recall）和 PR #6（`f088fdd`，无空格中文二字窗口）。
+- 修复真实 smoke 发现的问题：phone 工具 owner 隔离、raw Bili MCP 工具移除、失败 read 只写 `read_failed`、`ready/paused → completed`、`df_goal` 默认状态、`df_workshop` 幂等与参数兼容、`Workshop.check` 原子化。
+- 云端部署 v0.3.0：AstrBot v4.29.0 加载成功，12 个 `df_*` 工具注册，SQLite schema v1；QQ 恢复，PhoneMCP 18 工具连接。
+- 真实 smoke：life run `122ca7125a7a4635be2b3fbaac4555fa` completed（目标 `def033...`，2 条视频 + 弹幕/评论，截图回执 `1693155839`）；workshop work `f992...` revision 1（4 个来源，检查通过）；export/share 通过；手机离线写作 run `36e934...` completed，正确 `need_sources` 回 research，无手机调用。
+- 测试：Windows/Linux 均 **215 项 OK**（Windows 11 跳过，Linux 6 跳过；mcp 1.26）。
+- 未验收：跨日预算、真实账号写入/提议、LivingMemory 实际召回、browser-use MCP；`df_recall` 仍是词面检索，不宣称语义召回。
+
 ## 2026-10-24 · 自主生活插件 v0.3.0
 
 - 新增 `df_workshop`：根据当前私聊真实阅读经历创建研究笔记，保存不可覆盖的正文版本和来源，支持检查、受控 Markdown 导出和 QQ 私聊摘录分享。
