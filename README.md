@@ -53,7 +53,7 @@ deploy/incident_20261020/              ← 🧹 旧测试记录隔离脚本与�
 CHANGELOG.md                           ← 更新日志
 deploy/                                ← 云服务器部署套件（Docker Compose + 补丁 + 备份 + 运维笔记）
 tests/                                 ← 回归测试（插件文本规则 / 路径解析）
-assets/avatars/                        ← 头像素材（12 张，含授权署名）
+assets/avatars/                        ← 头像素材（18 张，v3-20261025 新立绘）
 assets/voice-demo/                     ← 音色样本与复刻链路说明
 ```
 
