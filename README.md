@@ -22,7 +22,7 @@
 | 🏠 群聊 | 进群聊天：@ / 引用 / 喊「大肥鱼」都能唤醒 | NapCat 群消息 + 唤醒词 |
 | 👥 认人 | 分得清谁在说话：群里看昵称、访客标「朋友」 | 插件注入身份标记（对方不可见） |
 | 🔐 隔离 | 每个私聊 / 每个群各一册记忆，互不串账 | livingmemory `session` 作用域 |
-| 📲 主动 | 随机 + 沉默触发，可按需联网找话题；每天 20:30 自己逛 B 站 | proactive_chat + AnySearch + cron |
+| 📲 主动 | 随机 + 沉默触发，可按需联网找话题；每天 20:30 自己逛 B 站，说去逛必须当轮真调工具 | proactive_chat + AnySearch + cron |
 | 🧭 日程 | 每轮知道自己名下真实存在的定时任务，不再说“我没有日程” | schedule_awareness 实时注入 cron_jobs（只读、按会话隔离） |
 | 📱 手机 | 看截图、读 UI、坐标点击、中文搜索、逛 B 站 | PhoneMCP + ADB + ADBKeyboard |
 | 🛠️ 运维 | 一键体检、日志、二维码、受控重启 | dafeiyu-admin MCP（SSH，只读优先） |

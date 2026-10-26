@@ -2,6 +2,12 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-26 · B站活动承诺与开机自启修复
+
+- 人格补充：主人叫去逛 B 站、问去了没有，或自己要马上动身时，必须先在同一轮调用 `df_bili_navigate` / `df_bili_read` / `df_bili_watch` 等实际工具；没有工具调用不许说“这就去/马上就去/去了去了”，只能如实说“还没开始”。修复“只承诺、不执行”的情况。
+- `install_bili_autostart.ps1` 生成的开机启动项会先最多等 5 分钟 `emulator-5554` 再拉起 Bili 服务，避免登录时比 PhoneMCP 服务先跑、因设备离线直接退出。
+- 背景：Bili 伴随服务在 10-26 00:21 随 PC 关机退出，13:07 开机后没有自启，导致 13:17–20:30 五次活动全部 `TransportError`；现已安装自启并完成端到端验证。
+
 ## 2026-10-25 · 原生语音与截图上下文修复
 
 - 显式语音 `tts_speak` 改走 AstrBot 原生 `dashscope_tts`（`qwen-audio-3.1-tts-plus` + 复刻音色），不再使用第三方路由插件的 SiliconFlow / MiniMax 音色；补丁见 `deploy/patches/tts_emotion_router_native_speak.diff`，升级该插件后需重打。
