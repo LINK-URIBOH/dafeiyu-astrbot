@@ -2,6 +2,12 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 2026-10-27 · 开机自启被 PowerShell 5.1 的 stderr 坑打断
+
+- `deploy/phone_mcp/start_phone_service.ps1` 在 `$ErrorActionPreference='Stop'` 下执行 `& $adb devices 2>$null`：Windows PowerShell 5.1 会把原生命令的 stderr 包成 `RemoteException`，而开机后 adb server 首次启动恰好打印 “daemon not running...”，脚本在拉起雷电后立刻退出，模拟器、PhoneMCP 与 Bili 隧道整条链路都没起来。
+- 修复：等待模拟器就绪期间临时切到 `Continue`，结束后恢复；顺带覆盖 `pm list packages` / 输入法设置的同类 stderr 重定向。
+- 背景：10-27 13:06 开机自启再次失败，20:30 活动全部 `TransportError`；10-21/10-24/10-25/10-26 的日志也都停在 `Starting LDPlayer`，同一根因。
+
 ## 2026-10-26 · B站活动承诺与开机自启修复
 
 - 人格补充：主人叫去逛 B 站、问去了没有，或自己要马上动身时，必须先在同一轮调用 `df_bili_navigate` / `df_bili_read` / `df_bili_watch` 等实际工具；没有工具调用不许说“这就去/马上就去/去了去了”，只能如实说“还没开始”。修复“只承诺、不执行”的情况。
