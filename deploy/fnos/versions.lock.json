@@ -1,0 +1,68 @@
+{
+  "project": {
+    "repository": "whyever77/dafeiyu-astrbot",
+    "commit": "662cd5dd096ce0c0cf2f599b51e82efff80da24d"
+  },
+  "plugins": [
+    {
+      "repository": "lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory",
+      "commit": "ac4114012f9462ce8d17ecd001687dbed4e95af9",
+      "directory": "astrbot_plugin_livingmemory"
+    },
+    {
+      "repository": "Pancakes-Labs/astrbot_plugin_proactive_chat",
+      "commit": "77a1d408ccd003a9d34ad4f51acfb8fc17bc35f5",
+      "directory": "astrbot_plugin_proactive_chat"
+    },
+    {
+      "repository": "Zhalslar/astrbot_plugin_parser",
+      "commit": "5286c1e9b6682635eb28dcb5bcfa25e6947a76c6",
+      "directory": "astrbot_plugin_parser"
+    },
+    {
+      "repository": "Zhalslar/astrbot_plugin_music",
+      "commit": "c322269e5a9bf54b71c99d6a2828139b7ac8c442",
+      "directory": "astrbot_plugin_music"
+    },
+    {
+      "repository": "Zhalslar/astrbot_plugin_pokepro",
+      "commit": "64f1f9f70be44757e0ee29246434545aaf3dcc52",
+      "directory": "astrbot_plugin_pokepro"
+    },
+    {
+      "repository": "Zhalslar/astrbot_plugin_memelite",
+      "commit": "f038e9fe3f1edf81dfaa6e3e3839e4e1aee35de3",
+      "directory": "astrbot_plugin_memelite"
+    },
+    {
+      "repository": "nagatoquin33/astrbot_plugin_stealer",
+      "commit": "758f94a5b0848c8723a56d20af3da4b8ef3c4e61",
+      "directory": "astrbot_plugin_stealer"
+    },
+    {
+      "repository": "diaomin66/astrbot_plugin_omnidraw",
+      "commit": "91a3555b5103baea759b12261ced52fd18d433bd",
+      "directory": "astrbot_plugin_omnidraw"
+    }
+  ],
+  "deployment_adaptations": {
+    "shared_group_context": {
+      "astrbot_base": "4.29.0",
+      "policy": "shared-context-persistence-and-quiet-hours",
+      "patches": [
+        "group_chat_context.py",
+        "dafeiyu_group_context.py",
+        "proactive_context_service.py"
+      ],
+      "version": "1",
+      "date": "2026-10-27",
+      "group_selection": "DAFEIYU_GROUP_ID in secrets/runtime.env"
+    }
+  },
+  "runtime": {
+    "astrbot": "4.29.0",
+    "napcat": "4.18.37",
+    "browser_use": "0.13.11",
+    "mcp": "2.1.1"
+  }
+}

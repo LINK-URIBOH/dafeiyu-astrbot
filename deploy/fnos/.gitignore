@@ -1,0 +1,15 @@
+.env
+secrets/
+incoming/
+backups/
+astrbot/
+napcat/
+browser/data/
+vendor/
+source/
+knowledge/
+persona-deployed.md
+__pycache__/
+*.pyc
+*.log
+*.tar.gz

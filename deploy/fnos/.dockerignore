@@ -1,0 +1,9 @@
+secrets
+incoming
+backups
+astrbot
+napcat
+browser/data
+source/assets
+source/.git
+**/__pycache__

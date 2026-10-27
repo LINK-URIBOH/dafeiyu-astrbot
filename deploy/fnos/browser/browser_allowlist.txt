@@ -1,0 +1,17 @@
+*.bilibili.com
+b23.tv
+*.b23.tv
+*.baidu.com
+*.bing.com
+*.wikipedia.org
+*.github.com
+*.github.io
+*.astrbot.app
+*.deepseek.com
+*.aliyun.com
+*.siliconflow.cn
+*.qq.com
+*.163.com
+*.xinhuanet.com
+*.people.com.cn
+*.gov.cn

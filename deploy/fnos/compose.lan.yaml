@@ -1,0 +1,8 @@
+# Optional: copy .env.example to .env and set the server's LAN address.
+services:
+  astrbot:
+    ports:
+      - '${DAFEIYU_LAN_IP:?Set DAFEIYU_LAN_IP in .env}:6185:6185'
+  napcat:
+    ports:
+      - '${DAFEIYU_LAN_IP:?Set DAFEIYU_LAN_IP in .env}:6100:6099'

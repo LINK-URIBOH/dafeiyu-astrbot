@@ -1,0 +1,55 @@
+{
+  "tested_project_commit": "662cd5dd096ce0c0cf2f599b51e82efff80da24d",
+  "tested_runtime": {
+    "astrbot": "4.29.0",
+    "napcat": "4.18.37",
+    "browser_use": "0.13.11",
+    "mcp": "2.1.1"
+  },
+  "tested_plugins": {
+    "astrbot_plugin_livingmemory": "ac4114012f9462ce8d17ecd001687dbed4e95af9",
+    "astrbot_plugin_proactive_chat": "77a1d408ccd003a9d34ad4f51acfb8fc17bc35f5",
+    "astrbot_plugin_parser": "5286c1e9b6682635eb28dcb5bcfa25e6947a76c6",
+    "astrbot_plugin_music": "c322269e5a9bf54b71c99d6a2828139b7ac8c442",
+    "astrbot_plugin_pokepro": "64f1f9f70be44757e0ee29246434545aaf3dcc52",
+    "astrbot_plugin_memelite": "f038e9fe3f1edf81dfaa6e3e3839e4e1aee35de3",
+    "astrbot_plugin_stealer": "758f94a5b0848c8723a56d20af3da4b8ef3c4e61",
+    "astrbot_plugin_omnidraw": "91a3555b5103baea759b12261ced52fd18d433bd"
+  },
+  "files": {
+    "patches/dafeiyu_group_context.py": "5ae77ef65bbc3bbc77ad529fcaca241b7da9d638db14ec1be5f1cd0b431470cd",
+    "patches/dashscope_tts.py": "a843ea1fa36960b8e98e81e2dbafd120f57e77489d0a358796a9995bcdf05fa2",
+    "patches/group_chat_context.py": "ed3af9f88170a4fa597940690b2b2fe60623e898e0a1a253f8c81475e9445028",
+    "patches/omnidraw_custom_endpoint_impl.py": "659995b19edde0e732796f5c065891072726db6be113655dd5839c30c72aa3f1",
+    "patches/proactive_context_service.py": "4b8a56bf099f674d0244ce3edba0b38a114ac81d33e476ea50e9a916a30a7308",
+    "patches/sitecustomize.py": "8e9e8b2fc43ce02b2803442821add2a818c8b4e67918e39523b9a9d581815e28",
+    "patches/stage.py": "b979b4e27c96f8e0a7ce66ab00558ab5d6acd6a6ba73ae2685ddae3db523750c"
+  },
+  "upstream_sources": {
+    "group_chat_context.py": {
+      "url": "https://github.com/AstrBotDevs/AstrBot/blob/v4.29.0/astrbot/builtin_stars/astrbot/group_chat_context.py",
+      "original_sha256": "fadd15e4d9d7b2956b6d0c7fdd7f8a314947d8604018bd3de7fc0a86cb013192"
+    },
+    "proactive_context_service.py": {
+      "url": "https://github.com/Pancakes-Labs/astrbot_plugin_proactive_chat/blob/77a1d408ccd003a9d34ad4f51acfb8fc17bc35f5/core/services/context_service.py",
+      "original_sha256": "9cb1a64008547523b688ae3b1d693c94777a19fd471b1ba7057831428a6b1be1"
+    },
+    "omnidraw_custom_endpoint_impl.py": {
+      "url": "https://github.com/diaomin66/astrbot_plugin_omnidraw/blob/91a3555b5103baea759b12261ced52fd18d433bd/providers/custom_endpoint_impl.py",
+      "original_sha256": "78e2249c514abe8c0a78a65d3e4dee3752dc70057444c4761007130456ea1d5a"
+    },
+    "stage.py": {
+      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/662cd5dd096ce0c0cf2f599b51e82efff80da24d/deploy/patches/stage.py",
+      "original_sha256": "b979b4e27c96f8e0a7ce66ab00558ab5d6acd6a6ba73ae2685ddae3db523750c"
+    },
+    "dashscope_tts.py": {
+      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/662cd5dd096ce0c0cf2f599b51e82efff80da24d/deploy/patches/dashscope_tts.py",
+      "original_sha256": "a843ea1fa36960b8e98e81e2dbafd120f57e77489d0a358796a9995bcdf05fa2"
+    }
+  },
+  "validation": {
+    "date": "2026-10-27",
+    "generic_group_context_tests": 11,
+    "scope": "Synthetic SQLite messages and subprocess restart; no QQ messages or model requests"
+  }
+}
