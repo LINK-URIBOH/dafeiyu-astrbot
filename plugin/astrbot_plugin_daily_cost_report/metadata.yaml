@@ -1,0 +1,8 @@
+name: astrbot_plugin_daily_cost_report
+display_name: 三平台费用日报
+desc: 每晚22点向指定超级管理员私聊推送三平台费用及余额，不调用模型
+version: v1.0.0
+author: LINK-URIBOH
+repo: https://github.com/LINK-URIBOH/dafeiyu-astrbot
+support_platforms:
+  - aiocqhttp

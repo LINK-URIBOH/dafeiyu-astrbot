@@ -40,7 +40,7 @@ STAMP=$(date +%Y%m%d_%H%M%S)
 TEMP="backups/.backup_${STAMP}.tar.gz"
 FINAL="backups/dafeiyu_backup_${STAMP}.tar.gz"
 OPTIONAL=()
-for extra in .env compose.lan.yaml patches.lock.json; do
+for extra in .env compose.lan.yaml patches.lock.json compose.cost-report.yaml Dockerfile.cost-report cost-report-requirements.txt; do
     [[ ! -f "$extra" ]] || OPTIONAL+=("$extra")
 done
 tar -czf "$TEMP" "${OPTIONAL[@]}" astrbot/data napcat/config napcat/qq secrets compose.yaml Dockerfile patches tools vendor/plugins fetch_plugins.py meme-resources.lock.json browser/server.py browser/Dockerfile browser/browser_allowlist.txt versions.lock.json persona-deployed.md knowledge

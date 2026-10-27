@@ -1,5 +1,7 @@
 # fnOS / Debian 纯 Linux 部署适配
 
+每日22点三平台费用日报为可选插件，安装与凭据说明见仓库 `plugin/astrbot_plugin_daily_cost_report/README.md`，使用 `compose.cost-report.yaml` 增量覆盖；SDK 在独立 Python 环境中运行，不修改核心依赖。
+
 本分支保存实际部署中使用的业务补丁、Linux 浏览器和运维脚本。默认仅绑定本机管理端口；可选局域网配置见下文。代码中没有部署凭据、真实群号、管理员 QQ、聊天数据或 QQ 登录状态。
 
 ## 分支与运行版本

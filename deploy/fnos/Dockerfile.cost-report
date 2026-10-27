@@ -1,0 +1,11 @@
+ARG DAFEIYU_COST_BASE_IMAGE=dafeiyu-astrbot:662cd5dd-fnos
+FROM ${DAFEIYU_COST_BASE_IMAGE}
+COPY cost-report-requirements.txt /tmp/daily-cost-report-requirements.txt
+RUN python -m pip freeze > /tmp/daily-cost-base-before.txt \
+    && python -m venv /opt/dafeiyu-cost-sdk \
+    && /opt/dafeiyu-cost-sdk/bin/python -m pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
+       -r /tmp/daily-cost-report-requirements.txt \
+    && /opt/dafeiyu-cost-sdk/bin/python -m pip check \
+    && python -m pip check \
+    && python -m pip freeze > /tmp/daily-cost-base-after.txt \
+    && python -c "from pathlib import Path; assert Path('/tmp/daily-cost-base-before.txt').read_bytes() == Path('/tmp/daily-cost-base-after.txt').read_bytes()"

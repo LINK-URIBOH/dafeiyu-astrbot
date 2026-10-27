@@ -1,0 +1,10 @@
+{
+  "recipient_qq": {"type": "string", "description": "唯一超级管理员QQ", "hint": "须仍在AstrBot全局管理员列表；只发私聊，不自动扩展收件人", "default": ""},
+  "platform_id": {"type": "string", "description": "QQ平台ID", "default": "qq"},
+  "report_enabled": {"type": "bool", "description": "每日22点私聊推送", "default": true},
+  "collection_enabled": {"type": "bool", "description": "每小时与22点只读采集", "default": true},
+  "deepseek_enabled": {"type": "bool", "description": "DeepSeek", "default": true},
+  "bailian_enabled": {"type": "bool", "description": "百炼费用只读API", "default": true},
+  "siliconflow_enabled": {"type": "bool", "description": "硅基流动国内控制台HTTP", "default": true},
+  "secrets_file": {"type": "string", "description": "受限凭据文件路径", "hint": "只填写容器内本地路径，不在面板填写密钥或Cookie", "default": "/run/secrets/daily-cost-report.json"}
+}

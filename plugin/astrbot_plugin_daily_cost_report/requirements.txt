@@ -1,0 +1,3 @@
+# aiohttp is supplied by AstrBot.
+# Install the BSS SDK in an isolated venv via deploy/fnos/Dockerfile.cost-report.
+# Do not install the SDK into AstrBot's core environment.

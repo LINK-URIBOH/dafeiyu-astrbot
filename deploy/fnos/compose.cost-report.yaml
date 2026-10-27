@@ -1,0 +1,12 @@
+services:
+  astrbot:
+    image: dafeiyu-astrbot:662cd5dd-cost-report-v1
+    build:
+      context: .
+      dockerfile: Dockerfile.cost-report
+      args:
+        DAFEIYU_COST_BASE_IMAGE: ${DAFEIYU_COST_BASE_IMAGE:-dafeiyu-astrbot:662cd5dd-fnos}
+    environment:
+      DAFEIYU_COST_SDK_PYTHON: /opt/dafeiyu-cost-sdk/bin/python
+    volumes:
+      - ./secrets/daily-cost-report.json:/run/secrets/daily-cost-report.json:ro
