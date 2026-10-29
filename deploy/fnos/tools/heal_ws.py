@@ -133,6 +133,11 @@ def _set_config(opener, cred, cfg):
 
 
 def main():
+    from gateway_health import backend, snowluma_health
+    if backend() == 'snowluma':
+        healthy = adapter_connected() and snowluma_health()
+        print('SnowLuma: ' + ('connected and online' if healthy else 'offline or awaiting login; no QQ restart attempted'))
+        return 0 if healthy else 1
     if adapter_connected():
         print("连接正常，无需修复")
         return 0

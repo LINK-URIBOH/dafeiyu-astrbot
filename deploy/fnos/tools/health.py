@@ -5,7 +5,8 @@ import subprocess
 import urllib.request
 
 base = Path(__file__).resolve().parents[1]
-for name in ('dafeiyu-astrbot', 'dafeiyu-napcat', 'dafeiyu-browser'):
+from gateway_health import backend
+for name in ('dafeiyu-astrbot', 'dafeiyu-snowluma' if backend() == 'snowluma' else 'dafeiyu-napcat', 'dafeiyu-browser'):
     result = subprocess.run(['docker', 'inspect', '-f', '{{.State.Status}}', name], capture_output=True, text=True)
     print(name + ': ' + (result.stdout.strip() or 'unavailable'))
 try:

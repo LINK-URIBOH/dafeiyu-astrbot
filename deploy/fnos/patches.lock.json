@@ -23,7 +23,8 @@
     "patches/omnidraw_custom_endpoint_impl.py": "659995b19edde0e732796f5c065891072726db6be113655dd5839c30c72aa3f1",
     "patches/proactive_context_service.py": "4b8a56bf099f674d0244ce3edba0b38a114ac81d33e476ea50e9a916a30a7308",
     "patches/sitecustomize.py": "8e9e8b2fc43ce02b2803442821add2a818c8b4e67918e39523b9a9d581815e28",
-    "patches/stage.py": "b979b4e27c96f8e0a7ce66ab00558ab5d6acd6a6ba73ae2685ddae3db523750c"
+    "patches/stage.py": "b979b4e27c96f8e0a7ce66ab00558ab5d6acd6a6ba73ae2685ddae3db523750c",
+    "patches/face_convert_main.py": "67378263c351a6e3492c6ae612c8d8dec909ee07b1c25ed63590c4fbad55dea8"
   },
   "upstream_sources": {
     "group_chat_context.py": {
@@ -45,6 +46,10 @@
     "dashscope_tts.py": {
       "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/662cd5dd096ce0c0cf2f599b51e82efff80da24d/deploy/patches/dashscope_tts.py",
       "original_sha256": "a843ea1fa36960b8e98e81e2dbafd120f57e77489d0a358796a9995bcdf05fa2"
+    },
+    "face_convert_main.py": {
+      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/662cd5dd096ce0c0cf2f599b51e82efff80da24d/plugin/astrbot_plugin_face_convert/main.py",
+      "original_sha256": "bfedefebe2fdfa1c35e264fef308d3e939b83b46193f85905ebf131e48de4d02"
     }
   },
   "validation": {

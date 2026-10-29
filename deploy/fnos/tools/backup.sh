@@ -43,7 +43,7 @@ OPTIONAL=()
 for extra in .env compose.lan.yaml patches.lock.json compose.cost-report.yaml Dockerfile.cost-report cost-report-requirements.txt; do
     [[ ! -f "$extra" ]] || OPTIONAL+=("$extra")
 done
-tar -czf "$TEMP" "${OPTIONAL[@]}" astrbot/data napcat/config napcat/qq secrets compose.yaml Dockerfile patches tools vendor/plugins fetch_plugins.py meme-resources.lock.json browser/server.py browser/Dockerfile browser/browser_allowlist.txt versions.lock.json persona-deployed.md knowledge
+python3 tools/backup_snapshot.py "$TEMP"
 tar -tzf "$TEMP" >/dev/null
 mv "$TEMP" "$FINAL"
 restore

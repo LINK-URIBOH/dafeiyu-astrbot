@@ -1,0 +1,37 @@
+services:
+  napcat:
+    profiles: [legacy-napcat]
+    restart: 'no'
+  astrbot:
+    volumes:
+      - ./snowluma/config/QQ:/app/.config/QQ:ro
+      - ./patches/face_convert_main.py:/AstrBot/data/plugins/astrbot_plugin_face_convert/main.py:ro
+  snowluma:
+    image: ${SNOWLUMA_IMAGE:-motricseven7/snowluma@sha256:74d6874a4240636dca700734f31fbce7d0735cbce6bb43780dd8e3788eddccc9}
+    container_name: dafeiyu-snowluma
+    restart: unless-stopped
+    shm_size: 1gb
+    mem_limit: 3g
+    cpus: 2.0
+    ulimits:
+      nofile: {soft: 65536, hard: 1048576}
+    cap_add: [SYS_PTRACE]
+    security_opt: [seccomp=unconfined]
+    environment:
+      TZ: Asia/Shanghai
+      SNOWLUMA_WEBUI_HOST: 0.0.0.0
+      SNOWLUMA_WEBUI_PORT: '5099'
+      SNOWLUMA_TELEMETRY: '0'
+      SNOWLUMA_HOOK_AUTOLOAD: '1'
+      SNOWLUMA_QQ_FLAGS: --disable-gpu --disable-software-rasterizer --disable-gpu-compositing
+    ports:
+      - '127.0.0.1:5099:5099'
+      - '127.0.0.1:6081:6081'
+    volumes:
+      - ./snowluma/data:/app/data
+      - ./snowluma/config:/app/.config
+      - ./snowluma/share:/app/.local/share
+      - ./astrbot/data/temp:/AstrBot/data/temp:ro
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
