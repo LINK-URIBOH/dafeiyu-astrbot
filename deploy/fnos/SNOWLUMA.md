@@ -20,7 +20,7 @@ docker compose up -d --no-deps --pull never astrbot snowluma
 
 脚本保留 `.env` 中已有的 Compose 覆盖文件并追加 SnowLuma；没有列表时默认组合核心、费用日报及 SnowLuma，因此要求已有费用日报适配。旧大肥鱼 NapCat 改为 `legacy-napcat` profile；普通启动不启动它。独立旧 `napcat` 另行关闭自动启动。不会删除旧容器、镜像或数据，不重跑初始化脚本。
 
-新 QQ 使用独立 `snowluma/config` 和 `snowluma/share`，不复制 NapCat 登录态。WebUI 为 5099，扫码桌面为 6081；只发布回环和明确指定的私有地址。HTTP 健康接口只监听容器回环，反向 WS 使用已有 Token，不发布 OneBot 端口。首次协议确认、扫码与安全验证由运营者完成，不设置自动接受条款变量。遥测、状态指令、历史同步和自发消息上报关闭。密码、登录数据、gateway.json 和数据库不得提交 Git。
+新 QQ 使用独立 `snowluma/config` 和 `snowluma/share`，不复制 NapCat 登录态。WebUI 为 5099，扫码桌面为 6081；只发布回环和明确指定的私有地址。HTTP 健康接口只监听容器回环，反向 WS 使用已有 Token，不发布 OneBot 端口。首次协议确认、扫码与安全验证由运营者完成，不设置自动接受条款变量。QQ客户端首次登录时勾选自动登录，并实际验证容器重启；若仍要求安全确认，保留离线告警，勿循环重启或切换接入端。遥测、状态指令、历史同步和自发消息上报关闭。密码、登录数据、gateway.json 和数据库不得提交 Git。
 
 ## 媒体与运维
 
