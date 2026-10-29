@@ -88,16 +88,21 @@ def install():
             if extra not in over:over=over.replace(line,line+'\n'+extra)
         (BASE/'compose.snowluma.yaml').write_text(over)
     env=BASE/'.env';text=env.read_text() if env.exists() else ''
+    previous=re.search(r'(?m)^COMPOSE_FILE=(.*)$',text)
+    files=previous.group(1).strip().split(':') if previous else ['compose.yaml','compose.cost-report.yaml']
+    if 'compose.snowluma.yaml' not in files:files.append('compose.snowluma.yaml')
     text=re.sub(r'(?m)^(COMPOSE_FILE|SNOWLUMA_IMAGE)=.*\n?','',text)
-    env.write_text(text.rstrip()+'\nCOMPOSE_FILE=compose.yaml:compose.cost-report.yaml:compose.snowluma.yaml\nSNOWLUMA_IMAGE='+IMAGE+'\n');env.chmod(0o600)
+    env.write_text(text.rstrip()+'\nCOMPOSE_FILE='+':'.join(files)+'\nSNOWLUMA_IMAGE='+IMAGE+'\n');env.chmod(0o600)
     healer=BASE/'tools/heal_ws.py';text=healer.read_text()
-    text=text.replace('def main():\n','def main():\n    from gateway_health import backend, snowluma_health\n    if backend() == "snowluma":\n        healthy = adapter_connected() and snowluma_health()\n        print("SnowLuma: " + ("connected and online" if healthy else "offline or awaiting login; no QQ restart attempted"))\n        return 0 if healthy else 1\n',1)
+    if 'from gateway_health import backend, snowluma_health' not in text:
+        text=text.replace('def main():\n',"def main():\n    from gateway_health import backend, snowluma_health\n    if backend() == 'snowluma':\n        healthy = adapter_connected() and snowluma_health()\n        deadline = time.monotonic() + 30\n        while not healthy and time.monotonic() < deadline:\n            time.sleep(2)\n            healthy = adapter_connected() and snowluma_health()\n        print('SnowLuma: ' + ('connected and online' if healthy else 'offline or awaiting login; no QQ restart attempted'))\n        return 0 if healthy else 1\n",1)
     healer.write_text(text)
     health=BASE/'tools/health.py';text=health.read_text().replace("for name in ('dafeiyu-astrbot', 'dafeiyu-napcat', 'dafeiyu-browser'):","from gateway_health import backend\nfor name in ('dafeiyu-astrbot', 'dafeiyu-snowluma' if backend() == 'snowluma' else 'dafeiyu-napcat', 'dafeiyu-browser'):")
     health.write_text(text)
     backup=BASE/'tools/backup.sh';text=backup.read_text()
     text,n=re.subn(r'(?m)^tar -czf .*$', 'python3 tools/backup_snapshot.py "$TEMP"',text)
-    assert n==1;backup.write_text(text)
+    assert n==1 or 'python3 tools/backup_snapshot.py' in text
+    backup.write_text(text)
     write(BASE/'gateway.json',{'backend':'snowluma','version':'2.2.1','image':IMAGE})
     lock=BASE/'versions.lock.json';data=json.loads(lock.read_text());data['qq_gateway']={'backend':'snowluma','version':'2.2.1','image':IMAGE,'previous':'napcat 4.18.37','face_patch_sha256':hashlib.sha256((BASE/'patches/face_convert_main.py').read_bytes()).hexdigest()};write(lock,data)
     d=json.loads(subprocess.check_output(['docker','compose','--profile','legacy-napcat','config','--format','json'],cwd=BASE,text=True))

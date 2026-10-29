@@ -156,6 +156,7 @@ async def run_bounded(
 class FaceConvertPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
+        self.context = context
         map_path = os.path.join(PLUGIN_DIR, "face_map.json")
         with open(map_path, encoding="utf-8") as f:
             self.face_map: dict[str, int] = json.load(f)
@@ -957,6 +958,57 @@ class FaceConvertPlugin(Star):
                 + (f"，脱括号 {stripped} 个（字典不认的）" if stripped else "")
                 + (f"，冷却丢弃 {dropped_faces} 个" if dropped_faces else "")
             )
+
+    @staticmethod
+    def _explicit_voice_request(event):
+        text = str(getattr(event, "message_str", "") or "")
+        if re.search(r"(?:不要|不用|别|禁止).{0,8}(?:语音|朗读|念出来|读出来)", text):
+            return False
+        return bool(re.search(r"语音|朗读|读给|念给|读出来|念出来|\bspeak\b|\bread.+aloud\b", text, re.I))
+
+    @filter.on_llm_request()
+    async def explicit_voice_hint(self, event: AstrMessageEvent, req):
+        if self._explicit_voice_request(event):
+            req.system_prompt = (req.system_prompt or "") + (
+                "\n用户本条消息明确要求语音。需要朗读时必须调用 tts_speak，"
+                "它能把文字合成为语音并发送；不要把待朗读文字传给要求音频文件的发送工具。"
+                "只有工具成功才可声称已经发出语音，失败时说明实际原因。"
+            )
+
+    @filter.llm_tool(name="tts_speak")
+    async def native_speak(self, event: AstrMessageEvent, content: str):
+        """把文字通过当前原生TTS模型合成为语音并发送，无需预先提供音频文件。仅在用户本条消息明确要求语音或朗读时使用。
+
+        Args:
+            content(string): 要朗读的纯文字，最多300字；不要传音频路径。
+        """
+        if not self._explicit_voice_request(event):
+            yield "未发送语音：当前消息未明确要求语音。"
+            return
+        content = re.sub(r"\[[A-Za-z一-鿿]{1,6}\]", "", str(content)).strip()
+        if not content or len(content) > 300:
+            yield "未发送语音：朗读文本必须为1至300字。"
+            return
+        if event.get_extra("dafeiyu_native_tts_sent"):
+            yield "本次请求已经发送过语音，不重复发送。"
+            return
+        try:
+            provider = await self.context.get_using_tts_provider_async(event.unified_msg_origin)
+            if not provider:
+                yield "未发送语音：本会话没有可用的TTS服务。"
+                return
+            path = await provider.get_audio(content)
+            if not path or not os.path.isfile(path) or os.path.getsize(path) == 0:
+                yield "未发送语音：TTS未返回有效音频文件。"
+                return
+            await event.send(event.chain_result([Record.fromFileSystem(path, text=content)]))
+            event.set_extra("dafeiyu_native_tts_sent", True)
+            logger.info("[face_convert] native_tts_sent")
+        except Exception as error:
+            logger.warning("[face_convert] native_tts_failed: %s", type(error).__name__)
+            yield "未发送语音：合成或平台投递失败，请用文字回复，勿声称已发送。"
+            return
+        yield "已合成语音并提交平台发送，请勿再次调用其他音频发送工具。"
 
     # ---------------- 语音开关（会话级，走 AstrBot 官方会话配置） ----------------
 

@@ -4,10 +4,45 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
-from test_snowluma_video import plugin
+from test_snowluma_video import plugin, mod
+from unittest.mock import patch
 
 
 class GatewayMediaTests(unittest.IsolatedAsyncioTestCase):
+    def voice_event(self,text='用语音回复测试成功'):
+        extra={}
+        return SimpleNamespace(message_str=text,unified_msg_origin='qq:FriendMessage:test',
+            get_extra=extra.get,set_extra=extra.__setitem__,send=AsyncMock(),chain_result=lambda x:x)
+
+    async def test_explicit_tts_calls_native_provider_and_deduplicates(self):
+        with tempfile.TemporaryDirectory() as d:
+            audio=Path(d)/'test.mp3';audio.write_bytes(b'ID3audio')
+            p=plugin();provider=SimpleNamespace(get_audio=AsyncMock(return_value=str(audio)))
+            p.context=SimpleNamespace(get_using_tts_provider_async=AsyncMock(return_value=provider))
+            e=self.voice_event()
+            with patch.object(mod.Record,'fromFileSystem',create=True,side_effect=lambda path,**kw:('record',path)):
+                result=[x async for x in p.native_speak(e,'测试成功')]
+                again=[x async for x in p.native_speak(e,'测试成功')]
+            self.assertIn('提交平台发送',result[0]);self.assertIn('不重复',again[0])
+            provider.get_audio.assert_awaited_once_with('测试成功');e.send.assert_awaited_once()
+
+    async def test_tts_requires_explicit_request_and_limited_text(self):
+        p=plugin();p.context=SimpleNamespace(get_using_tts_provider_async=AsyncMock())
+        for text,content in [('你好','你好'),('不要语音回复','你好'),('用语音回复','x'*301)]:
+            result=[x async for x in p.native_speak(self.voice_event(text),content)]
+            self.assertIn('未发送语音',result[0])
+        p.context.get_using_tts_provider_async.assert_not_awaited()
+
+    async def test_tts_provider_failure_does_not_claim_delivery(self):
+        p=plugin();p.context=SimpleNamespace(get_using_tts_provider_async=AsyncMock(side_effect=RuntimeError('test')))
+        e=self.voice_event();result=[x async for x in p.native_speak(e,'测试')]
+        self.assertIn('未发送语音',result[0]);e.send.assert_not_awaited()
+
+    async def test_tts_hint_only_in_explicit_turn(self):
+        p=plugin();req=SimpleNamespace(system_prompt='existing')
+        await p.explicit_voice_hint(self.voice_event('你好'),req);self.assertEqual(req.system_prompt,'existing')
+        await p.explicit_voice_hint(self.voice_event(),req);self.assertIn('tts_speak',req.system_prompt)
+
     async def transcribe(self,data):
         p=plugin();p._asr_file=AsyncMock(return_value='ok')
         event=SimpleNamespace(bot=SimpleNamespace(get_record=AsyncMock(return_value=data)))

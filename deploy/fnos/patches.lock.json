@@ -24,7 +24,7 @@
     "patches/proactive_context_service.py": "4b8a56bf099f674d0244ce3edba0b38a114ac81d33e476ea50e9a916a30a7308",
     "patches/sitecustomize.py": "8e9e8b2fc43ce02b2803442821add2a818c8b4e67918e39523b9a9d581815e28",
     "patches/stage.py": "b979b4e27c96f8e0a7ce66ab00558ab5d6acd6a6ba73ae2685ddae3db523750c",
-    "patches/face_convert_main.py": "67378263c351a6e3492c6ae612c8d8dec909ee07b1c25ed63590c4fbad55dea8"
+    "patches/face_convert_main.py": "0453b9de60b6fd6065bcfc18368a1d4e53aaa7e7bf47b8e54a45824170e49591"
   },
   "upstream_sources": {
     "group_chat_context.py": {

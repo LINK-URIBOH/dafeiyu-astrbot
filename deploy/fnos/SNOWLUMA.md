@@ -18,13 +18,13 @@ docker update --restart=no dafeiyu-napcat napcat
 docker compose up -d --no-deps --pull never astrbot snowluma
 ```
 
-脚本设置 `.env` 的 Compose 列表，默认组合核心、费用日报及 SnowLuma 三份配置，因此要求已有费用日报适配。旧大肥鱼 NapCat 改为 `legacy-napcat` profile；普通启动不启动它。独立旧 `napcat` 另行关闭自动启动。不会删除旧容器、镜像或数据，不重跑初始化脚本。
+脚本保留 `.env` 中已有的 Compose 覆盖文件并追加 SnowLuma；没有列表时默认组合核心、费用日报及 SnowLuma，因此要求已有费用日报适配。旧大肥鱼 NapCat 改为 `legacy-napcat` profile；普通启动不启动它。独立旧 `napcat` 另行关闭自动启动。不会删除旧容器、镜像或数据，不重跑初始化脚本。
 
 新 QQ 使用独立 `snowluma/config` 和 `snowluma/share`，不复制 NapCat 登录态。WebUI 为 5099，扫码桌面为 6081；只发布回环和明确指定的私有地址。HTTP 健康接口只监听容器回环，反向 WS 使用已有 Token，不发布 OneBot 端口。首次协议确认、扫码与安全验证由运营者完成，不设置自动接受条款变量。遥测、状态指令、历史同步和自发消息上报关闭。密码、登录数据、gateway.json 和数据库不得提交 Git。
 
 ## 媒体与运维
 
-`face_convert_main.py` 基于固定项目版本。优先读取 `get_record` 转码后的 base64，校验格式、大小和音频头；拒绝将 SILK/AMR 冒充 MP3。保留旧 NapCat 文件返回兼容。视频通过原消息刷新下载地址。
+`face_convert_main.py` 基于固定项目版本。优先读取 `get_record` 转码后的 base64，校验格式、大小和音频头；拒绝将 SILK/AMR 冒充 MP3。保留旧 NapCat 文件返回兼容。视频通过原消息刷新下载地址。明确要求语音时提供 tts_speak 调用当前原生TTS并发送，限制300字、拒绝未经明确请求的调用，并在同一请求内去重；不改变自动语音概率或会话开关。
 
 健康检查核对连接与 `get_status`；SnowLuma 使用自身 WS 重连和 supervisor 恢复，离线或风控不触发循环重启 QQ，也不启动旧 NapCat。`gateway.json` 选择后端，缺失时沿用 NapCat。
 
@@ -38,6 +38,6 @@ python3 -m unittest discover -s tools -p 'test_snowluma_*.py'
 python3 tools/heal_ws.py
 ```
 
-测试需固定 source/、aiohttp 和 ffmpeg；19 项覆盖原视频处理及新增音频 payload、视频地址刷新，不调用模型或发送 QQ。真实验收检查收件端文字、图片、语音、视频、点歌、表情、戳一戳、管理员命令，另测共享上下文、重启重连与备份恢复，不继承旧 NapCat 人工验收结论。
+测试需固定 source/、aiohttp 和 ffmpeg；27 项覆盖原视频处理、音频 payload、视频地址刷新、原生TTS、备份与重连宽限，不调用模型或发送 QQ。真实验收检查收件端文字、图片、语音、视频、点歌、表情、戳一戳、管理员命令，另测共享上下文、重启重连与备份恢复，不继承旧 NapCat 人工验收结论。
 
 回退先停止 SnowLuma，保留其数据；恢复 `incoming/snowluma-before` 中的 Compose、环境、工具和版本文件，移走 gateway.json，恢复 AstrBot 原媒体挂载，再按需启动大肥鱼 NapCat。不要覆盖迁移后业务数据库。独立旧 NapCat 默认继续停用，禁止两个接入端同时登录同一 QQ。

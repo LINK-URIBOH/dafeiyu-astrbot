@@ -136,6 +136,12 @@ def main():
     from gateway_health import backend, snowluma_health
     if backend() == 'snowluma':
         healthy = adapter_connected() and snowluma_health()
+        # AstrBot may expose its dashboard before SnowLuma's next retry.
+        # Wait for the existing connection loop; never restart or reconfigure QQ.
+        deadline = time.monotonic() + 30
+        while not healthy and time.monotonic() < deadline:
+            time.sleep(2)
+            healthy = adapter_connected() and snowluma_health()
         print('SnowLuma: ' + ('connected and online' if healthy else 'offline or awaiting login; no QQ restart attempted'))
         return 0 if healthy else 1
     if adapter_connected():
