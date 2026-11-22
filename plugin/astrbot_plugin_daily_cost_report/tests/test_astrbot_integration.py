@@ -1,11 +1,13 @@
 """Run in AstrBot's deployment image; no real QQ messages or model calls."""
 import asyncio
+from datetime import datetime,timedelta
 import importlib.util
 from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 HAS_ASTRBOT = importlib.util.find_spec('astrbot') is not None
@@ -74,6 +76,28 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
                 break  # The real scheduler does not run response stages here.
         self.assertTrue(stopped)
         event.send.assert_awaited_once_with('PRIVATE_FINANCIAL_STATE')
+
+    async def test_history_command_uses_frozen_history_entrypoint(self):
+        report={'schema_version':1}
+        self.plugin.engine=SimpleNamespace(historical=AsyncMock(return_value=report),render=Mock(return_value='SAVED_LEGACY'))
+        day=(datetime.now()-timedelta(days=2)).strftime('%Y-%m-%d')
+        event=self.event(text='/费用 日报 '+day)
+        await self.plugin.cost_commands(event)
+        self.plugin.engine.historical.assert_awaited_once();event.send.assert_awaited_once_with('SAVED_LEGACY')
+
+    async def test_aliyun_fund_event_command_is_annotation_only(self):
+        store=SimpleNamespace(adjustment=Mock(return_value=7))
+        self.plugin.engine=SimpleNamespace(store=store,reconcile=Mock())
+        moment=(datetime.now()-timedelta(days=2)).strftime('%Y-%m-%dT12:00')
+        event=self.event(text='/费用 调整 阿里云 +10 '+moment+' 充值')
+        await self.plugin.cost_commands(event)
+        self.assertEqual(store.adjustment.call_args.args[0],'bailian')
+        self.assertIn('不改变余额差',event.send.call_args.args[0])
+
+    async def test_today_command_renders_partial_balance_not_old_cost(self):
+        report={'schema_version':2};self.plugin.engine=SimpleNamespace(capture=AsyncMock(),build=Mock(return_value=report),render=Mock(return_value='CURRENT_BALANCE'))
+        event=self.event(text='/费用 今日');await self.plugin.cost_commands(event)
+        self.plugin.engine.capture.assert_awaited_once();event.send.assert_awaited_once_with('CURRENT_BALANCE')
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

@@ -17,11 +17,12 @@ from .engine import Engine
 from .providers import Adapters
 from .store import Store
 
-HELP = ('费用管理（仅指定超级管理员私聊）\n/费用 状态\n/费用 今日\n/费用 日报 YYYY-MM-DD\n'
+HELP = ('余额日报管理（仅指定超级管理员私聊）\n/费用 状态\n/费用 今日\n/费用 日报 YYYY-MM-DD\n'
         '/费用 刷新\n/费用 推送 开|关\n/费用 采集 开|关\n'
         '/费用 调整 平台 有符号金额 YYYY-MM-DDTHH:MM 类型\n'
         '例：/费用 调整 deepseek +10 2026-10-28T12:30 充值\n'
-        '资金进入填正数，失效或提现填负数；不是直接修改消费金额。\n/费用 撤销 调整编号')
+        '支持 deepseek、bailian/百炼/阿里云、siliconflow。\n'
+        '资金进入填正数，失效或提现填负数；仅登记事件，不改变余额差或重算旧日报。\n/费用 撤销 调整编号')
 
 
 def permitted(event, recipient, platform, admins):
@@ -30,7 +31,7 @@ def permitted(event, recipient, platform, admins):
             and str(event.get_sender_id()) == str(recipient) and event.get_platform_id() == platform)
 
 
-@register('astrbot_plugin_daily_cost_report', 'LINK-URIBOH', '超级管理员私聊三平台费用日报，不调用模型', '1.0.0')
+@register('astrbot_plugin_daily_cost_report', 'LINK-URIBOH', '超级管理员私聊三平台余额变化，不调用模型', '1.1.0')
 class DailyCostReport(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -56,7 +57,6 @@ class DailyCostReport(Star):
             logger.warning('[daily_cost_report] 已有活动实例，本实例不启动定时器')
             return
         store = Store(data / 'costs.sqlite3')
-        store.recover(stamp(datetime.now(ZONE)))
         adapters = Adapters(store, self.config.get('secrets_file', '/run/secrets/daily-cost-report.json'))
 
         async def send(text):
@@ -66,8 +66,9 @@ class DailyCostReport(Star):
             return await self.context.send_message(session, MessageChain(chain=[Plain(text)]))
 
         self.engine = Engine(store, adapters, self.config, send, self.authorized)
+        store.recover(stamp(datetime.now(ZONE)))
         self.task = asyncio.create_task(self.loop(), name='daily-cost-report')
-        logger.info('[daily_cost_report] 私聊费用日报已加载；22:00 Asia/Shanghai；不调用模型')
+        logger.info('[daily_cost_report] 私聊余额日报已加载；22:00 Asia/Shanghai；旧日报冻结；不调用模型')
 
     async def loop(self):
         while True:
@@ -118,9 +119,7 @@ class DailyCostReport(Star):
                 end = date_end(args[1])
                 if not stamp(now) - 365 * 86400 <= end <= stamp(latest_end(now)):
                     raise ValueError('只支持一年内已经结束的日报窗口')
-                await self.engine.capture(history_start=end - 86400)
-                report = self.engine.build(end)
-                self.engine.store.save_report(report)
+                report = await self.engine.historical(end)
                 result = self.engine.render(report)
             elif action in ('推送', '采集') and len(args) == 2 and args[1] in ('开', '关'):
                 key = 'report_enabled' if action == '推送' else 'collection_enabled'
@@ -130,8 +129,8 @@ class DailyCostReport(Star):
                 result = action + '已' + args[1] + ('；关闭推送仍会继续采集。' if action == '推送' else '；暂停期间不补造余额快照。')
             elif action == '调整' and len(args) == 5:
                 provider = ALIASES.get(args[1].lower())
-                if provider not in ('deepseek', 'siliconflow'):
-                    raise ValueError('仅余额差来源需要资金调整；百炼按平台账单统计')
+                if provider not in ('deepseek', 'bailian', 'siliconflow'):
+                    raise ValueError('平台：deepseek、bailian/百炼/阿里云、siliconflow')
                 moment = parse_time(args[3])
                 if moment > stamp(now) or moment < stamp(now) - 365 * 86400:
                     raise ValueError('调整时间须在过去一年内，不接受未来资金记录')
@@ -143,7 +142,7 @@ class DailyCostReport(Star):
                     raise ValueError('资金流入填正数，失效或提现填负数')
                 row_id = self.engine.store.adjustment(provider, moment, value, kind, stamp(now))
                 self.engine.reconcile(stamp(latest_end(now)))
-                result = f'已登记资金调整 #{row_id}，保留审计记录；历史费用变化将列入日报补正。'
+                result = f'已登记资金事件 #{row_id}，仅作说明，不改变余额差或重算旧日报；保留审计记录。'
             elif action == '撤销' and len(args) == 2:
                 ok = self.engine.store.revoke(int(args[1]), stamp(now))
                 self.engine.reconcile(stamp(latest_end(now)))

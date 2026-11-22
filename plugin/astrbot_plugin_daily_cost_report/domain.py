@@ -8,7 +8,9 @@ from zoneinfo import ZoneInfo
 ZONE = ZoneInfo('Asia/Shanghai')
 PROVIDERS = ('deepseek', 'bailian', 'siliconflow')
 LABELS = {'deepseek': 'DeepSeek', 'bailian': '百炼', 'siliconflow': '硅基流动'}
+BALANCE_LABELS = {**LABELS, 'bailian': '阿里云账户（百炼等）'}
 ALIASES = {**{p: p for p in PROVIDERS}, 'ds': 'deepseek', '百炼': 'bailian', '硅基流动': 'siliconflow', 'sf': 'siliconflow'}
+ALIASES['阿里云'] = 'bailian'
 BOUNDARY_TOLERANCE = 300
 
 
@@ -30,6 +32,18 @@ def amount(value) -> str:
 
 def display(value) -> str:
     return '不可获取' if value is None else f'￥{money(value):.4f}'
+
+
+def movement(value, cash=False) -> str:
+    if value is None:
+        return '无法计算余额变化'
+    delta = money(value)
+    if delta == 0:
+        return '现金余额未变化' if cash else '余额未变化'
+    direction = '增加' if delta > 0 else '减少'
+    if abs(delta) < Decimal('0.00005'):
+        return direction + '不足 ￥0.0001'
+    return direction + ' ' + display(abs(delta))
 
 
 def stamp(value: datetime) -> int:

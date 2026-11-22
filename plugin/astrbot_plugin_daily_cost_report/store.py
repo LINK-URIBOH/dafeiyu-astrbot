@@ -55,6 +55,11 @@ class Store:
         with self.db() as db:
             db.execute('INSERT OR REPLACE INTO meta VALUES(?,?)', (key, str(value)))
 
+    def establish_balance_cutover(self, ending):
+        with self.db() as db:
+            db.execute('INSERT OR IGNORE INTO meta VALUES(?,?)', ('balance_report_start', str(ending)))
+            return int(db.execute("SELECT value FROM meta WHERE key='balance_report_start'").fetchone()[0])
+
     def snapshot(self, provider, planned, observed, data):
         with self.db() as db:
             db.execute('INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?)', (provider, planned, observed, json.dumps(data)))
@@ -115,6 +120,10 @@ class Store:
             rows = db.execute('SELECT value FROM adjustments WHERE provider=? AND moment>=? AND moment<? AND revoked IS NULL', (provider, start, end))
             return sum((money(r['value']) for r in rows), Decimal(0))
 
+    def events(self, provider, start, end):
+        with self.db() as db:
+            return [dict(row) for row in db.execute('SELECT id,moment,value,kind FROM adjustments WHERE provider=? AND moment>=? AND moment<? AND revoked IS NULL ORDER BY moment,id', (provider,start,end))]
+
     def report(self, ending):
         with self.db() as db:
             row = db.execute('SELECT body FROM reports WHERE ending=?', (ending,)).fetchone()
@@ -123,6 +132,9 @@ class Store:
     def save_report(self, report):
         ending = report['ending']
         with self.db() as db:
+            cutoff = db.execute("SELECT value FROM meta WHERE key='balance_report_start'").fetchone()
+            if cutoff and ending < int(cutoff[0]):
+                raise ValueError('旧版历史日报已冻结，不允许重算')
             row = db.execute('SELECT revision,body FROM reports WHERE ending=?', (ending,)).fetchone()
             old = json.loads(row['body']) if row else None
             revision = row['revision'] + 1 if row else 1
@@ -132,14 +144,17 @@ class Store:
             if old and delivered:
                 for provider, current in report['providers'].items():
                     previous = old['providers'][provider]
-                    if current.get('cost') != previous.get('cost'):
-                        body = {'old': previous.get('cost'), 'new': current.get('cost')}
+                    metric = 'balance_change' if report.get('schema_version') == 2 else 'cost'
+                    if current.get(metric) != previous.get(metric):
+                        body = {'old': previous.get(metric), 'new': current.get(metric)}
+                        if metric == 'balance_change':
+                            body['metric'] = metric
                         db.execute('INSERT OR IGNORE INTO corrections(ending,provider,revision,body) VALUES(?,?,?,?)', (ending, provider, revision, json.dumps(body)))
             db.execute('INSERT OR REPLACE INTO reports VALUES(?,?,?)', (ending, revision, json.dumps(report)))
 
-    def pending_corrections(self):
+    def pending_corrections(self, min_ending=0):
         with self.db() as db:
-            return [dict(row, body=json.loads(row['body'])) for row in db.execute('SELECT * FROM corrections WHERE notified=0 ORDER BY ending,id')]
+            return [dict(row, body=json.loads(row['body'])) for row in db.execute('SELECT * FROM corrections WHERE notified=0 AND ending>=? ORDER BY ending,id', (min_ending,))]
 
     def claim(self, endings, now):
         with self.db() as db:
@@ -165,7 +180,8 @@ class Store:
 
     def recover(self, now):
         with self.db() as db:
-            db.execute("UPDATE deliveries SET status='unknown',updated=? WHERE status='sending'", (now,))
+            cutoff = db.execute("SELECT value FROM meta WHERE key='balance_report_start'").fetchone()
+            db.execute("UPDATE deliveries SET status='unknown',updated=? WHERE status='sending' AND ending>=?", (now,int(cutoff[0]) if cutoff else 0))
 
     def prune(self, now):
         cutoff = now - 365 * 86400

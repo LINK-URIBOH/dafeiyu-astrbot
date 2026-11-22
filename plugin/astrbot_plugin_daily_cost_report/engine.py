@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from .domain import LABELS, PROVIDERS, ZONE, amount, balance_cost, bill_total, display, latest_end, local, money, months_for, stamp
+from .domain import BALANCE_LABELS, BOUNDARY_TOLERANCE, movement, LABELS, PROVIDERS, ZONE, amount, balance_cost, bill_total, display, latest_end, local, money, months_for, stamp
 from .providers import SourceError
 
 
@@ -14,6 +14,7 @@ class Engine:
         self.send, self.authorized = send, authorized
         self.clock = clock or (lambda: datetime.now(ZONE))
         self.capture_lock, self.send_lock = asyncio.Lock(), asyncio.Lock()
+        self.cutover = store.establish_balance_cutover(stamp(latest_end(self.clock()) + timedelta(days=1)))
 
     def enabled(self, provider):
         return bool(self.config.get(provider + '_enabled', True))
@@ -46,50 +47,88 @@ class Engine:
             await asyncio.gather(*(one(p) for p in PROVIDERS))
 
     def build(self, ending, until=None):
-        start = ending - 86400
-        stop = ending if until is None else until
-        result = {'ending': ending, 'start': start, 'until': stop, 'providers': {},
-                  'first_partial': int(self.store.meta('first_seen')) > start}
+        if until is None and ending < self.cutover:
+            saved = self.store.report(ending)
+            if saved is None:
+                raise ValueError('该日期没有已保存的历史日报；旧窗口不重新计算')
+            return saved
+        start, stop = ending - 86400, ending if until is None else until
+        result = {'schema_version': 2, 'ending': ending, 'start': start, 'until': stop,
+                  'first_partial': int(self.store.meta('first_seen')) > start, 'providers': {}}
         for provider in PROVIDERS:
             state = self.store.state(provider)
-            last = self.store.latest(provider, stop + 300)
-            row = {'cost': None, 'currency': 'CNY', 'reason': '', 'balance': None,
-                   'cash': None, 'available': None, 'observed': None, 'source_status': state.get('status')}
-            if last:
-                row.update({key: last.get(key) for key in ('balance', 'cash', 'available', 'observed')})
+            a = self.store.boundary(provider, start)
+            b = self.store.boundary(provider, stop) if until is None else self.store.latest(provider, stop)
+            if until is not None and b and stop - b['observed'] > BOUNDARY_TOLERANCE:
+                b = None
+            field = 'cash' if provider == 'bailian' else 'balance'
+            row = {'balance_change': None, 'opening_balance': None, 'closing_balance': None,
+                   'sample_times': [a.get('observed') if a else None, b.get('observed') if b else None],
+                   'currency': 'CNY', 'reason': '', 'source_status': state.get('status'),
+                   'events': self.store.events(provider, start, stop)}
             if not self.enabled(provider):
                 row['reason'] = '此平台已停用'
-            elif provider == 'bailian':
-                account = (last or state).get('account')
-                cycles = months_for(start, stop)
-                records, covered = self.store.bills(account, cycles) if account else ([], False)
-                if covered:
-                    row['cost'], row['reason'] = bill_total(records, start, stop)
-                    if state.get('status') != 'ok' or not state.get('billing_complete'):
-                        row['reason'] += '；本次更新失败，使用已存账单，尚未核齐'
-                else:
-                    row['reason'] = state.get('billing_error') or state.get('reason') or '账单尚未取得完整月份，不能判定零消费'
-            else:
-                a = self.store.boundary(provider, start)
-                b = self.store.boundary(provider, stop)
-                adjustment = self.store.adjustments(provider, start, stop)
-                row['cost'], row['reason'] = balance_cost(a, b, adjustment)
-                row['adjustment'] = amount(adjustment)
-                row['sample_times'] = [a.get('observed') if a else None, b.get('observed') if b else None]
-                if provider == 'siliconflow' and b:
-                    row['reason'] += '；' + b.get('balance_scope', '现金口径')
+            elif not a or not b:
+                missing = []
+                if not a: missing.append('缺少期初22点有效采样')
+                if not b: missing.append('缺少期末22点有效采样' if until is None else '最近5分钟没有成功采样')
+                row['reason'] = '；'.join(missing)
                 if state.get('status') != 'ok':
-                    row['reason'] += '；' + state.get('reason', '当前来源未就绪')
+                    row['reason'] += '；' + state.get('reason', '采集尚未就绪')
+            elif not a.get('account') or a.get('account') != b.get('account'):
+                row['reason'] = '两端账户不一致，不能计算余额差'
+            elif a.get('currency') != 'CNY' or b.get('currency') != 'CNY':
+                row['reason'] = '两端币种不是同一人民币口径，不能计算余额差'
+            elif provider == 'siliconflow' and a.get('verified_mapping') != b.get('verified_mapping'):
+                row['reason'] = '两端现金字段或金额单位发生变化，需要重新建立同口径基线'
+            else:
+                try:
+                    opening, closing = money(a.get(field)), money(b.get(field))
+                    row.update(opening_balance=amount(opening), closing_balance=amount(closing),
+                               balance_change=amount(closing - opening))
+                except ValueError:
+                    row['reason'] = '缺少有效现金余额字段' if provider == 'bailian' else '缺少有效余额字段'
             result['providers'][provider] = row
         return result
+
+    async def historical(self, ending):
+        if ending < self.cutover:
+            return self.build(ending)  # Frozen report: no refresh or database write.
+        await self.capture()
+        report = self.build(ending)
+        self.store.save_report(report)
+        return report
 
     def reconcile(self, ending):
         for offset in range(7, -1, -1):
             target = ending - offset * 86400
-            if target >= int(self.store.meta('first_seen')):
+            if target >= max(self.cutover, int(self.store.meta('first_seen'))):
                 self.store.save_report(self.build(target))
 
     def render(self, report):
+        if report.get('schema_version') != 2:
+            return self.render_legacy(report)
+        complete = report['until'] == report['ending']
+        lines = ['三平台余额日报' if complete else '当前余额变化（截至当前采样，窗口尚未结束）',
+                 local(report['start']).strftime('%m-%d %H:%M') + ' → ' + local(report['until']).strftime('%m-%d %H:%M') + '（北京时间）']
+        if report['first_partial']:
+            lines.append('首日数据不完整：缺少安装前的有效采样。')
+        for provider, row in report['providers'].items():
+            cash = provider != 'deepseek'
+            lines += ['', BALANCE_LABELS[provider] + '：' + movement(row['balance_change'], cash)]
+            if row['balance_change'] is None:
+                lines.append('  ' + row['reason'])
+            else:
+                prefix = '现金 ' if cash else '余额 '
+                suffix = '（现金＋赠金）' if not cash else ('（不含代金券）' if provider == 'siliconflow' else '')
+                lines.append('  ' + prefix + display(row['opening_balance']) + ' → ' + display(row['closing_balance']) + suffix)
+            for event in row.get('events', []):
+                value = money(event['value'])
+                lines.append('  已登记：' + event['kind'] + (' +' if value > 0 else ' -') + display(abs(value)) + '（不改变余额差）')
+        lines += ['', '以上为余额变化，不等同于本期调用费用。', '阿里云包含账户内其他产品，扣款也可能延迟。']
+        return '\n'.join(lines)
+
+    def render_legacy(self, report):
         ending, start = report['ending'], report['start']
         lines = ['三平台费用日报' if report['until'] == ending else '当前统计窗口（尚未结束）',
                  local(start).strftime('%m-%d %H:%M') + ' → ' + local(report['until']).strftime('%m-%d %H:%M') + '（北京时间）']
@@ -109,18 +148,25 @@ class Engine:
         return '\n'.join(lines)
 
     def status(self):
-        lines = ['费用日报：22:00 / Asia/Shanghai',
+        lines = ['三平台余额日报：22:00 / Asia/Shanghai',
+                 '新版首个日报截止：' + local(self.cutover).strftime('%Y-%m-%d %H:%M'),
+                 '旧版历史日报：冻结保存，不重算、不补发',
                  '采集：' + ('开' if self.config.get('collection_enabled', True) else '关'),
                  '推送：' + ('开' if self.config.get('report_enabled', True) else '关')]
         for provider in PROVIDERS:
             row = self.store.state(provider)
-            text = row.get('billing_error') or row.get('reason') or row.get('status', '未配置')
+            text = '余额采集正常' if row.get('status') == 'ok' else row.get('reason', '尚未配置或采集')
             if row.get('last_success'):
                 text += '；最后成功 ' + local(row['last_success']).strftime('%m-%d %H:%M:%S')
-            lines.append(LABELS[provider] + '：' + text)
+            sample = self.store.latest(provider)
+            if sample:
+                if provider == 'bailian':
+                    text += '；现金 ' + display(sample.get('cash')) + '；可用额度 ' + display(sample.get('available'))
+                else:
+                    text += '；余额 ' + display(sample.get('balance'))
+            lines.append(BALANCE_LABELS[provider] + '：' + text)
         unknown = self.store.meta('delivery_note')
-        if unknown:
-            lines.append(unknown)
+        if unknown: lines.append(unknown)
         return '\n'.join(lines)
 
     async def tick(self):
@@ -136,7 +182,7 @@ class Engine:
             self.store.prune(now)
             self.store.set_meta('last_prune', now_dt.date().isoformat())
         first_seen = int(self.store.meta('first_seen'))
-        due = [ending - i * 86400 for i in range(6, -1, -1) if ending - i * 86400 >= first_seen]
+        due = [ending - i * 86400 for i in range(6, -1, -1) if ending - i * 86400 >= max(first_seen, self.cutover)]
         candidates = []
         for end in due:
             delivery = self.store.delivery(end)
@@ -153,18 +199,18 @@ class Engine:
             if not self.store.claim(candidates, now):
                 return
             reports = [self.store.report(end) or self.build(end) for end in candidates]
-            corrections = self.store.pending_corrections()
+            corrections = self.store.pending_corrections(self.cutover)
             # A seven-day catch-up remains one QQ message, not seven long reports.
             if len(reports) == 1:
                 body = self.render(reports[0])
             else:
-                body = '费用日报合并补发（北京时间）\n' + '\n'.join(
+                body = '余额日报合并补发（北京时间）\n' + '\n'.join(
                     local(r['ending']).strftime('%Y-%m-%d') + '：' + '；'.join(
-                        LABELS[p] + ' ' + display(r['providers'][p]['cost']) for p in PROVIDERS) for r in reports)
-                body += '\n仅列已取得数据；不可获取不是零消费。详情可用 /费用 日报 日期 查询。'
+                        BALANCE_LABELS[p] + ' ' + movement(r['providers'][p]['balance_change'], p != 'deepseek') for p in PROVIDERS) for r in reports)
+                body += '\n余额缺失不等于未变化；阿里云为账户级现金。详情用 /费用 日报 日期 查询。'
             if corrections:
-                body += '\n历史补正：\n' + '\n'.join(
-                    local(c['ending']).strftime('%m-%d') + ' ' + LABELS[c['provider']] + ' ' + display(c['body']['old']) + ' → ' + display(c['body']['new'])
+                body += '\n新版窗口余额补正：\n' + '\n'.join(
+                    local(c['ending']).strftime('%m-%d') + ' ' + BALANCE_LABELS[c['provider']] + ' ' + movement(c['body']['old']) + ' → ' + movement(c['body']['new'])
                     for c in corrections[-21:])
                 if len(corrections) > 21:
                     body += '\n其余补正已记入历史，可按日期查询。'

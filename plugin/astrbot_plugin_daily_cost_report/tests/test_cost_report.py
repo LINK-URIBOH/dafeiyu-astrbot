@@ -148,6 +148,8 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
         self.sender = AsyncMock(return_value=True)
         self.adapters = SimpleNamespace(collect=AsyncMock(return_value=snap('8')))
         self.config = {'report_enabled': True, 'collection_enabled': True}
+        # Scheduler scenarios represent a deployment already switched before END.
+        self.store.set_meta('balance_report_start', END)
         self.engine = Engine(self.store, self.adapters, self.config, self.sender, lambda: True, lambda: self.now)
         self.http = AsyncMock()
 
@@ -213,22 +215,26 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
     async def test_redirect_destination_rejected(self):
         with self.assertRaises(SourceError): await http_json('https://example.com/', {'Authorization': 'secret'})
 
-    async def test_bailian_pagination_and_dedup(self):
+    async def test_bailian_balance_does_not_fetch_or_replace_legacy_bills(self):
         self.secrets({'bailian': {'access_key_id': 'synthetic', 'access_key_secret': 'synthetic', 'product_codes': ['model-service']}})
+        calls = []
+        self.store.replace_bills('legacy', '2026-10', [{'id': 'old', 'cost': '1'}], END - 1)
         def client(operation, params):
+            calls.append(operation)
             if operation == 'balance': return {'Success': True, 'Data': {'Currency': 'CNY', 'AvailableAmount': '8', 'AvailableCashAmount': '10'}}
             rows = [bill(str(i)) for i in range(300)] if params['page_num'] == 1 else [bill('300')]
             return {'Success': True, 'Data': {'Items': {'Item': rows}, 'TotalCount': 301}}
         row = await self.adapter(factory=lambda _: client).collect('bailian', END, END - 86400)
-        records, covered = self.store.bills(row['account'], ['2026-10'])
-        self.assertTrue(covered); self.assertEqual(len(records), 301); self.assertEqual(row['cash'], '10')
+        records, covered = self.store.bills('legacy', ['2026-10'])
+        self.assertEqual(calls, ['balance'])
+        self.assertTrue(covered); self.assertEqual(records, [{'id': 'old', 'cost': '1'}]); self.assertEqual(row['cash'], '10')
 
-    async def test_bailian_empty_unidentified_not_zero(self):
+    async def test_bailian_balance_does_not_require_bill_product_identification(self):
         self.secrets({'bailian': {'access_key_id': 'x', 'access_key_secret': 'x'}})
         def client(operation, params):
             return {'Success': True, 'Data': {'Currency': 'CNY', 'AvailableAmount': '8', 'AvailableCashAmount': '10'} if operation == 'balance' else {'Items': {'Item': []}, 'TotalCount': 0}}
         row = await self.adapter(factory=lambda _: client).collect('bailian', END, END - 86400)
-        self.assertFalse(row['billing_complete']); self.assertEqual(row['cash'], '10')
+        self.assertNotIn('billing_error', row); self.assertEqual(row['cash'], '10')
 
     async def test_partial_platform_failure_still_sends(self):
         async def collect(provider, *_):
@@ -257,7 +263,9 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
         self.config['collection_enabled'] = False
         await self.engine.tick()
         self.adapters.collect.assert_not_called()
-        self.assertIn('缺少22点', self.sender.call_args.args[0])
+        self.assertIn('缺少期初22点有效采样', self.sender.call_args.args[0])
+        self.assertIn('缺少期末22点有效采样', self.sender.call_args.args[0])
+        self.assertTrue(all(r['balance_change'] is None for r in self.store.report(END)['providers'].values()))
 
     async def test_night_restart_waits_until_8(self):
         self.now = datetime(2026, 10, 29, 2, tzinfo=ZONE)
@@ -267,6 +275,8 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_seven_day_catchup_is_one_message(self):
         self.store.set_meta('first_seen', END - 10 * 86400)
+        self.engine.cutover = END - 10 * 86400
+        self.store.set_meta('balance_report_start', self.engine.cutover)
         await self.engine.tick()
         self.sender.assert_awaited_once(); self.assertIn('合并补发', self.sender.call_args.args[0])
         self.assertEqual(len([i for i in range(7) if self.store.delivery(END - i * 86400)]), 7)
@@ -285,17 +295,16 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
         await self.engine.tick(); await self.engine.tick()
         self.sender.assert_awaited_once(); self.assertEqual(self.store.delivery(END)['status'], 'unknown')
 
-    async def test_late_bill_correction(self):
+    async def test_funding_events_do_not_change_reported_balance_difference(self):
         self.store.snapshot('deepseek', END - 86400, END - 86400, snap('10'))
         self.store.snapshot('deepseek', END, END, snap('8'))
-        self.store.state('bailian', {'status': 'ok', 'billing_complete': True, 'account': 'a'})
-        self.store.replace_bills('a', '2026-10', [], END)
         self.engine.reconcile(END)
         self.store.claim([END], END); self.store.finish([END], 'sent', END)
-        self.store.replace_bills('a', '2026-10', [{'id': 'x', 'start': END - 100, 'end': END, 'currency': 'CNY', 'cost': '2'}], END + 1)
+        self.store.adjustment('deepseek', END - 100, '10', '充值', END + 1)
         self.engine.reconcile(END)
         changes = self.store.pending_corrections()
-        self.assertEqual(len(changes), 1); self.assertEqual(changes[0]['body'], {'old': '0', 'new': '2'})
+        self.assertEqual(changes, [])
+        self.assertEqual(self.store.report(END)['providers']['deepseek']['balance_change'], '-2')
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

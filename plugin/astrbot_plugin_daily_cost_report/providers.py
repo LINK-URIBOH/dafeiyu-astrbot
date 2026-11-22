@@ -210,57 +210,12 @@ class Adapters:
         if not cfg.get('access_key_id') or not cfg.get('access_key_secret'):
             raise SourceError('unconfigured', '未配置百炼 RAM 费用只读凭据')
         client = self._bss(cfg)
-        try:
-            balances = await asyncio.to_thread(self._bss_query, client, 'balance', {})
-            currency = balances.get('Currency')
-            if currency != 'CNY':
-                raise SourceError('currency', '阿里云账户币种不是人民币')
-            account = identity(cfg['access_key_id'])
-            result = {'currency': 'CNY', 'account': account, 'cash': amount(balances.get('AvailableCashAmount')),
-                      'available': amount(balances.get('AvailableAmount')), 'balance': None}
-            recognized = set()
-            known_codes = set(cfg.get('product_codes', [])) | set(self.store.state('bailian').get('recognized_product_codes', []))
-            for cycle in months_for(start, now + 1):
-                items, seen_pages = [], set()
-                for page in range(1, 101):
-                    data = await asyncio.to_thread(self._bss_query, client, 'bills',
-                        {'billing_cycle': cycle, 'page_num': page, 'page_size': 300})
-                    rows = data.get('Items', {}).get('Item', [])
-                    total = int(data.get('TotalCount', 0))
-                    if not isinstance(rows, list) or total < 0:
-                        raise SourceError('schema', '百炼账单分页结构异常')
-                    signature = identity(json.dumps(rows, sort_keys=True))
-                    if rows and signature in seen_pages:
-                        raise SourceError('pagination', '百炼账单分页重复，未保存不完整结果')
-                    seen_pages.add(signature)
-                    items.extend(rows)
-                    if page * 300 >= total:
-                        if len(items) < total:
-                            raise SourceError('pagination', '百炼账单分页缺失')
-                        break
-                    if not rows:
-                        raise SourceError('pagination', '百炼账单分页提前结束')
-                else:
-                    raise SourceError('pagination', '百炼账单超过分页上限')
-                normalized, codes = normalize_bills(items, known_codes)
-                recognized.update(codes)
-                known_codes.update(codes)
-                # Without a known product, an empty response cannot prove zero cost.
-                if not known_codes:
-                    raise SourceError('verification', '尚未识别百炼账单商品，请核对并填写 product_codes')
-                self.store.replace_bills(account, cycle, normalized, now)
-            result['recognized_product_codes'] = sorted(known_codes)
-            result['billing_complete'] = True
-            return result
-        except SourceError as error:
-            if 'result' in locals():
-                result['billing_error'] = error.reason
-                result['billing_complete'] = False
-                return result
-            raise
-        except Exception:
-            if 'result' in locals():
-                result['billing_error'] = '百炼账单查询失败，请检查权限或重试；未用历史缓存冒充最新账单'
-                result['billing_complete'] = False
-                return result
-            raise SourceError('billing', '阿里云余额查询失败，请核对凭据、权限及网络') from None
+        balances = await asyncio.to_thread(self._bss_query, client, 'balance', {})
+        if balances.get('Currency') != 'CNY':
+            raise SourceError('currency', '阿里云账户币种不是人民币')
+        # Account cash, not available credit and not a Model Studio bill total.
+        # Legacy bill rows stay untouched for the frozen historical reports.
+        return {'currency': 'CNY', 'account': identity(cfg['access_key_id']),
+                'cash': amount(balances.get('AvailableCashAmount')),
+                'available': amount(balances['AvailableAmount']) if balances.get('AvailableAmount') is not None else None,
+                'balance': None, 'balance_scope': '阿里云账户现金（包含百炼及其他产品）'}
