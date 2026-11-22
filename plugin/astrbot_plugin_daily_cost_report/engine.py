@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from .domain import BALANCE_LABELS, BOUNDARY_TOLERANCE, movement, LABELS, PROVIDERS, ZONE, amount, balance_cost, bill_total, display, latest_end, local, money, months_for, stamp
 from .providers import SourceError
+from .periods import summarize
 
 
 class Engine:
@@ -89,6 +90,8 @@ class Engine:
                 except ValueError:
                     row['reason'] = '缺少有效现金余额字段' if provider == 'bailian' else '缺少有效余额字段'
             result['providers'][provider] = row
+            if self.enabled(provider):
+                row['statistics'] = summarize(self.store, provider, b, stop)
         return result
 
     async def historical(self, ending):
@@ -125,7 +128,18 @@ class Engine:
             for event in row.get('events', []):
                 value = money(event['value'])
                 lines.append('  已登记：' + event['kind'] + (' +' if value > 0 else ' -') + display(abs(value)) + '（不改变余额差）')
+            stats=row.get('statistics')
+            if stats:
+                if stats['cumulative_change'] is not None:
+                    lines.append('  累计：' + movement(stats['cumulative_change'],cash) + '（自' + local(stats['cumulative_start']).strftime('%Y-%m-%d %H:%M') + '）')
+                else:
+                    lines.append('  累计：无法计算，' + stats['reason'])
+                if stats['weekly_change'] is not None:
+                    lines.append('  自然周均：' + movement(stats['weekly_change'],cash) + '／周（' + str(stats['week_count']) + '个完整自然周）')
+                else:
+                    lines.append('  自然周均：' + stats['reason'])
         lines += ['', '以上为余额变化，不等同于本期调用费用。', '阿里云包含账户内其他产品，扣款也可能延迟。']
+        lines.append('自然周：周一00:00至下周一00:00；首个不足周和当前周不计入周均。')
         return '\n'.join(lines)
 
     def render_legacy(self, report):

@@ -31,7 +31,7 @@ def permitted(event, recipient, platform, admins):
             and str(event.get_sender_id()) == str(recipient) and event.get_platform_id() == platform)
 
 
-@register('astrbot_plugin_daily_cost_report', 'LINK-URIBOH', '超级管理员私聊三平台余额变化，不调用模型', '1.1.0')
+@register('astrbot_plugin_daily_cost_report', 'LINK-URIBOH', '超级管理员私聊三平台余额变化、累计与自然周均，不调用模型', '1.2.0')
 class DailyCostReport(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)

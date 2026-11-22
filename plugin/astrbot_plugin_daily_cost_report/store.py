@@ -60,6 +60,19 @@ class Store:
             db.execute('INSERT OR IGNORE INTO meta VALUES(?,?)', ('balance_report_start', str(ending)))
             return int(db.execute("SELECT value FROM meta WHERE key='balance_report_start'").fetchone()[0])
 
+    def remember_baseline(self, key, candidate):
+        with self.db() as db:
+            db.execute('INSERT OR IGNORE INTO meta VALUES(?,?)', (key,json.dumps(candidate)))
+            return json.loads(db.execute('SELECT value FROM meta WHERE key=?',(key,)).fetchone()[0])
+
+    def samples(self, provider, before, near=None):
+        with self.db() as db:
+            if near is None:
+                rows=db.execute('SELECT observed,body FROM snapshots WHERE provider=? AND observed<=? ORDER BY observed,planned',(provider,before)).fetchall()
+            else:
+                rows=db.execute('SELECT observed,body FROM snapshots WHERE provider=? AND observed<=? AND ABS(observed-?)<=? ORDER BY ABS(observed-?),observed',(provider,before,near,BOUNDARY_TOLERANCE,near)).fetchall()
+        return [{**json.loads(row['body']),'observed':row['observed']} for row in rows]
+
     def snapshot(self, provider, planned, observed, data):
         with self.db() as db:
             db.execute('INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?)', (provider, planned, observed, json.dumps(data)))

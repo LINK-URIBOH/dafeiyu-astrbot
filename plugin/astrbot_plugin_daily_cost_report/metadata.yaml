@@ -1,7 +1,7 @@
 name: astrbot_plugin_daily_cost_report
 display_name: 三平台余额日报
 desc: 每晚22点仅向指定超级管理员私聊展示三平台期初期末余额及增减，不调用模型
-version: v1.1.0
+version: v1.2.0
 author: LINK-URIBOH
 repo: https://github.com/LINK-URIBOH/dafeiyu-astrbot
 support_platforms:
