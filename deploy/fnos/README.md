@@ -99,6 +99,16 @@ git push origin fnos-linux
 
 ## 验证、上线与回滚
 
+### 浏览器登录提示判断（2026-11-22）
+
+普通页头登录按钮、B站右上角不阻挡公开视频的登录推荐不需要点击或关闭；继续读取公开内容。真实登录墙、表单、验证码、访问限制或无法可靠检查的页面仍立即停止，不绕过、不重试。`access_guard.py` 通过固定只读 DOM 观察区分提示，模型无权调用脚本或关闭弹窗；白名单、八步/三分钟预算和只读动作集合保持不变。
+
+更新现有部署时只安装 `browser/server.py`、`browser/access_guard.py` 与构建文件，使用新标签 `dafeiyu-browser:fnos-login-guard-20261122`，保留旧镜像及浏览器数据。正常构建：`docker compose build browser`；仅变更源码、必须保留当前依赖时，可从已记录镜像 ID 本地派生并 COPY 这两个文件。将同名镜像标签写入现有 Compose 的 browser 服务，只执行 `docker compose up -d --no-deps browser`（携带该部署已有的覆盖文件），不重启 AstrBot 或 QQ。
+
+已有每日 B站任务通过 `python3 tools/update_bili_policy.py --backup-dir incoming/本次私密备份目录` 精确更新说明。该工具仅 PATCH 指定任务的 note，保留收件人、模型、人格、时区、开关及 20:30 调度；说明不符合已知旧版时拒绝修改，不运行初始化脚本。备份含私聊会话标识，应保持私密。
+
+回退时恢复本次保留的浏览器代码和 Compose 镜像标签，再仅重建 browser；任务说明通过面板 PATCH 恢复 `bili-job-before.json` 的 note。不要用旧数据库覆盖在线聊天或费用记录。浏览器恢复后从 AstrBot 调用 `browser_health`，再进行一次有界匿名浏览，核对真实标题、UP主和完整链接；调度状态 completed 本身不代表推荐成功。
+
 ```bash
 python3 tools/verify_patches.py
 docker exec -w /AstrBot dafeiyu-astrbot python -m pip check

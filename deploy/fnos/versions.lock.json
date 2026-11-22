@@ -68,6 +68,14 @@
         "proactive_chat_patches"
       ],
       "optional_modules_enabled": false
+    },
+    "browser_access_guard": {
+      "version": "2",
+      "date": "2026-11-22",
+      "policy": "permit-unobstructed-public-content-stop-on-login-wall-or-challenge",
+      "image": "dafeiyu-browser:fnos-login-guard-20261122",
+      "browser_use": "0.13.11",
+      "mcp": "2.1.1"
     }
   },
   "runtime": {

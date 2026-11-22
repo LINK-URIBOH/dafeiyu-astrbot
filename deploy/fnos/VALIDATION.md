@@ -33,6 +33,18 @@ docker exec -w /AstrBot dafeiyu-astrbot python -m pytest data/plugins/astrbot_pl
 
 ## 代码发布检查
 
+浏览器访问守卫回归在固定 browser-use 0.13.11 的浏览器镜像中运行：
+
+```bash
+# 无网络、无凭据，HOME 指向可写临时目录；真实 Chromium 只访问容器内合成页面。
+HOME=/tmp ANONYMIZED_TELEMETRY=false python -m unittest discover -s browser/tests -v
+cd tools && python -m unittest test_update_bili_policy -v
+```
+
+覆盖真实 Agent 模型调用前入口、可读内容旁的普通登录推荐、阻挡遮罩（含未知类名）、登录表单/二维码、无文字验证码、隐藏节点、观察失败及异常返回。任务更新测试检查只 PATCH note、收件人不变、重复执行幂等和未知旧说明拒绝修改。合成测试不能替代匿名热门页的真实链接核验。
+
+2026-11-22 本修复验证：浏览器 9 项测试（其中 DOM 矩阵 23 个场景）、任务更新 4 项均通过。全仓 905 项回归有 2 项失败、2 项跳过；同环境的修改前 v1.2 源码快照复现完全相同的两个失败：`test_bili_planner.PlannerIntegrationTests.test_exhausted_budget_does_not_plan_or_execute` 和 `test_bili_projects.ProjectIntegrationTests.test_dnd_pause_and_budget_still_prevent_review_round`。二者位于本部署未启用的手机自主活动模块，不作为本次浏览器修复通过证据，也未随本次修复修改。
+
 ```bash
 python3 tools/verify_patches.py
 python3 -m compileall -q browser patches tools

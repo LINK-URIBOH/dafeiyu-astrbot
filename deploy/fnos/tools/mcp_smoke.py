@@ -13,7 +13,7 @@ async def main():
             names = [tool.name for tool in (await session.list_tools()).tools]
             print('MCP tools: ' + ', '.join(names), flush=True)
             tool = 'browser_task' if '--bili' in sys.argv else 'browser_health'
-            arguments = {'task': '打开 https://www.bilibili.com/v/popular/all/ ，读取公开页面，最多返回三条视频的真实标题、UP主和完整视频链接。只读已有页面，不播放、不登录，遇到验证码或访问限制立即结束。明确这些是页面信息，不是已经观看视频。', 'max_steps': 8} if tool == 'browser_task' else {}
+            arguments = {'task': '打开 https://www.bilibili.com/v/popular/all/ ，读取公开页面，最多返回三条视频的真实标题、UP主和完整视频链接。普通登录按钮或非阻挡登录推荐不点击、不关闭，继续读取公开内容；真正登录墙、验证码或访问限制立即停止，不绕过、不重试。只读、不播放、不登录。明确这些是页面信息，不是已经观看视频。', 'max_steps': 8} if tool == 'browser_task' else {}
             result = await session.call_tool(tool, arguments)
             texts = [item.text for item in result.content if hasattr(item, 'text')]
             output = {'tool': tool, 'is_error': result.isError, 'text': '\n'.join(texts)}

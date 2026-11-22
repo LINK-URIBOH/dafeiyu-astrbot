@@ -59,7 +59,7 @@ services:
     init: true
     build:
       context: ./browser
-    image: dafeiyu-browser:662cd5dd-fnos
+    image: dafeiyu-browser:fnos-login-guard-20261122
     container_name: dafeiyu-browser
     restart: unless-stopped
     env_file: ./secrets/browser.env

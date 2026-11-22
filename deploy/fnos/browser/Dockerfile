@@ -8,6 +8,6 @@ RUN python -m pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/si
     && python -m pip check \
     && useradd --uid 10001 --create-home browser
 WORKDIR /app
-COPY server.py browser_allowlist.txt ./
+COPY server.py access_guard.py browser_allowlist.txt ./
 USER 10001:10001
 CMD ["python", "/app/server.py"]
