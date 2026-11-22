@@ -1,0 +1,615 @@
+"""Room snapshots use real producer schemas and temporary state, never real accounts."""
+import copy
+import hashlib
+import importlib
+import json
+from pathlib import Path
+import sqlite3
+import struct
+import sys
+import tempfile
+import threading
+import time
+import types
+import unittest
+from unittest.mock import Mock, patch
+
+from deploy.memory_observatory.activity import SSHActivitySource, demo_room
+from deploy.memory_observatory.activity_reader import ActivityError, read_activity
+from deploy.memory_observatory.server import ObservatoryServer
+TESTS_DIR = str(Path(__file__).resolve().parent)
+if TESTS_DIR not in sys.path:
+    sys.path.insert(0, TESTS_DIR)
+import test_memory_observatory as existing
+
+PACKAGE = "room_fixture_plugin"
+package = types.ModuleType(PACKAGE)
+package.__path__ = [str(Path(__file__).resolve().parents[1] / "plugin/astrbot_plugin_bili_activity")]
+sys.modules[PACKAGE] = package
+core = importlib.import_module(PACKAGE + ".core")
+contacts = importlib.import_module(PACKAGE + ".contact")
+SCOPE = "qq:FriendMessage:12345"
+
+
+class ReaderTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.cfg = {"owner_scope": SCOPE, "owner_id": "12345", "enabled": True,
+                    "life_enabled": True, "life_decision_enabled": True, "max_minutes": 10,
+                    "secret": "TOKEN-MUST-NOT-LEAVE"}
+        self.write_config()
+        self.store = core.Store(self.root)
+        self.now = time.time()
+        self.store.db.execute("INSERT INTO goals(id, scope, owner_kind, title, why, source_id, status, next_step, checkpoint_json, evidence_ids, run_id, created_at, updated_at, due_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+            "goal", SCOPE, "self", "研究海里的光", "出于好奇", "source-1", "paused", "核对第二份资料", "{}", "[]", None, self.now-60, self.now-30, None))
+
+    def write_config(self):
+        (self.root / "control.json").write_text(json.dumps(self.cfg), encoding="utf-8")
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def decision(self, action="research", status="running", *, scope=SCOPE, started=None, at=None):
+        started = self.now-10 if started is None else started
+        self.store.db.execute("INSERT OR REPLACE INTO runs VALUES(?,?,?,?,?,?)", ("run-"+scope, scope, started, None if status=="running" else self.now, status, "RAW-RESPONSE-MUST-NOT-LEAVE"))
+        self.store.event(scope, "life_decision" if action!="rest" else "life_rest", {
+            "action": action, "run_id": "run-"+scope if action!="rest" else "no-run", "reason": "继续昨天的问题", "goal_id":"goal", "topic":"海洋", "secret":"TOKEN-MUST-NOT-LEAVE"})
+        self.store.db.execute("UPDATE events SET time=? WHERE seq=last_insert_rowid()", (self.now-10 if at is None else at,))
+
+    def read(self):
+        return read_activity(self.root, now=self.now)
+
+    def test_readonly_preserves_running_state_and_source_files(self):
+        self.decision()
+        self.store.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        paths = [self.root / n for n in ("control.json", "activity.sqlite3")]
+        before = [hashlib.sha256(p.read_bytes()).hexdigest() for p in paths]
+        result = self.read()
+        self.assertEqual(result["state"], "recorded_running")
+        self.assertEqual(self.store.db.execute("SELECT status FROM runs").fetchone()[0], "running")
+        self.assertEqual(before, [hashlib.sha256(p.read_bytes()).hexdigest() for p in paths])
+        self.assertEqual(self.read(), result)
+
+    def test_wal_commits_are_visible_without_store_recovery(self):
+        self.decision("writing")
+        self.assertEqual(self.read()["decisions"][0]["action"], "writing")
+        self.assertEqual(self.store.db.execute("SELECT status FROM runs").fetchone()[0], "running")
+
+    def test_stale_running_is_not_presented_as_live(self):
+        self.decision(started=self.now-4000)
+        self.assertEqual(self.read()["state"], "unconfirmed")
+
+    def test_completed_run_does_not_complete_goal(self):
+        self.decision(status="completed")
+        result = self.read()
+        self.assertEqual(result["state"], "ended")
+        self.assertEqual(result["goals"][0]["status"], "paused")
+
+    def test_rest_without_run_and_unstarted_plan_are_distinct(self):
+        self.decision(action="rest")
+        self.assertEqual(self.read()["state"], "rest")
+        self.store.db.execute("DELETE FROM events")
+        self.decision()
+        self.store.db.execute("DELETE FROM runs")
+        self.assertEqual(self.read()["state"], "planned")
+
+    def test_switches_and_pause_override_old_activity(self):
+        self.decision()
+        self.cfg["enabled"] = False
+        self.write_config()
+        self.assertEqual(self.read()["state"], "disabled")
+        self.cfg["enabled"] = True
+        self.write_config()
+        self.store.setting("life_paused:"+SCOPE, True)
+        self.assertEqual(self.read()["state"], "paused")
+
+    def test_other_scope_and_sensitive_metadata_never_leave_reader(self):
+        self.decision()
+        self.decision(scope="qq:GroupMessage:999")
+        self.store.db.execute("UPDATE events SET details=? WHERE scope<>?", (json.dumps({"action":"writing","reason":"FOREIGN-PRIVATE","run_id":"other"}),SCOPE))
+        result = json.dumps(self.read())
+        for forbidden in ("FOREIGN-PRIVATE", "TOKEN-MUST-NOT-LEAVE", "RAW-RESPONSE-MUST-NOT-LEAVE", SCOPE, "cookies", str(self.root)):
+            self.assertNotIn(forbidden, result)
+        self.assertEqual(len(self.read()["decisions"]), 1)
+
+    def test_optional_old_tables_are_not_created_and_records_are_bounded(self):
+        for _ in range(17):
+            self.decision()
+        self.assertEqual(len(self.read()["decisions"]), 12)
+        self.assertEqual(self.read()["contacts"], [])
+        self.assertIsNone(self.store.db.execute("SELECT 1 FROM sqlite_master WHERE name='contact_attempts'").fetchone())
+
+    def test_contact_projection_has_no_body_hash_or_message_receipt(self):
+        contacts.ContactLedger(self.store)
+        self.store.db.execute("INSERT INTO contact_attempts VALUES(?,?,?,?,?,?,?,?,?,?,?)", (
+            "secret-key",SCOPE,"life","thought","secret-fingerprint","2026-10-30",self.now-10,None,None,"uncertain","private-message-id"))
+        result = self.read()
+        self.assertEqual(result["contacts"][0]["status"], "uncertain")
+        self.assertNotIn("private-message-id",json.dumps(result))
+        self.assertNotIn("secret-fingerprint",json.dumps(result))
+
+    def test_real_work_schema_is_scoped_and_pending_proposals_expose_no_payload(self):
+        importlib.import_module(PACKAGE + ".workshop").Workshop(self.store)
+        for scope, ident, title in ((SCOPE,"own","自己的作品"),("qq:FriendMessage:9","other","FOREIGN-WORK")):
+            self.store.db.execute("INSERT INTO creative_works VALUES(?,?,?,?,?,?,?,?,?,?)", (
+                ident,scope,"goal",title,"write","draft",2,ident,self.now-60,self.now))
+        self.store.db.execute("INSERT INTO proposals(id,scope,actor,action,args,fingerprint,status,created,expires) VALUES(?,?,?,?,?,?,?,?,?)", (
+            "proposal",SCOPE,"12345","comment",'{"message":"PRIVATE-PAYLOAD"}',"fingerprint","uncertain",self.now,self.now+60))
+        result=self.read()
+        self.assertEqual(result["works"][0]["title"],"自己的作品")
+        self.assertEqual(result["works"][0]["revision"],2)
+        self.assertEqual(result["pending"],1)
+        self.assertNotIn("FOREIGN-WORK",json.dumps(result))
+        self.assertNotIn("PRIVATE-PAYLOAD",json.dumps(result))
+
+    def test_rhythm_projects_recorded_fields_without_mutation_or_private_metadata(self):
+        self.cfg["life_rhythm_enabled"] = True
+        self.write_config()
+        self.store.event(SCOPE, "life_rest", {"action": "rest", "run_id": "no-run", "reason": "先休息",
+            "rhythm": {"enabled": True, "phase": "sleep", "at": self.now-10, "reason": "到了休息时段",
+                       "recent_activity_minutes": 12, "window_minutes": 120, "limit_minutes": 20,
+                       "next_eligible_at": self.now+3600, "source_run_ids": ["SECRET-ID"], "token": "SECRET"}})
+        self.store.db.execute("UPDATE events SET time=? WHERE seq=last_insert_rowid()", (self.now-10,))
+        before = self.store.db.total_changes
+        snapshot = self.read()
+        r = snapshot["decisions"][0]["rhythm"]
+        self.assertEqual((r["phase"], r["recent_activity_minutes"]), ("sleep", 12))
+        self.assertTrue(snapshot["flags"]["life_rhythm_enabled"])
+        self.assertNotIn("SECRET", json.dumps(snapshot))
+        self.assertEqual(self.store.db.total_changes, before)
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM runs").fetchone()[0], 0)
+
+    def test_old_or_future_rhythm_does_not_invent_current_state(self):
+        self.decision(status="completed")
+        self.assertIsNone(self.read()["decisions"][0]["rhythm"])
+        raw = {"action": "research", "run_id": "run-"+SCOPE,
+               "rhythm": {"enabled": True, "phase": "sleep", "at": self.now+1}}
+        self.store.db.execute("UPDATE events SET details=?", (json.dumps(raw),))
+        self.assertIsNone(self.read()["decisions"][0]["rhythm"])
+        self.assertEqual(self.read()["state"], "ended")
+
+    def test_bad_config_missing_db_and_future_schema_fail_closed(self):
+        self.cfg["owner_scope"] = "qq:GroupMessage:12345"
+        self.write_config()
+        with self.assertRaises(ActivityError): self.read()
+        self.cfg["owner_scope"] = SCOPE
+        self.write_config()
+        self.store.db.execute("PRAGMA user_version=99")
+        with self.assertRaises(ActivityError): self.read()
+        with self.assertRaises(ActivityError): read_activity(self.root / "absent")
+        self.assertFalse((self.root / "absent").exists())
+
+    def test_invalid_or_future_decision_does_not_claim_current_activity(self):
+        self.decision(at=self.now+9999)
+        self.assertEqual(self.read()["state"], "idle")
+        self.store.db.execute("UPDATE events SET details='broken private payload',time=?",(self.now,))
+        with self.assertRaisesRegex(ActivityError, "无法读取活动账本") as error: self.read()
+        self.assertNotIn("private",str(error.exception))
+
+    def test_read_activity_includes_affect_fallback_when_db_absent(self):
+        result = self.read()
+        self.assertIn("affect", result)
+        self.assertEqual(result["affect"]["state"], "unavailable")
+        self.assertEqual(result["affect"]["valence"], 0.0)
+        self.assertEqual(result["affect"]["care_threads"], [])
+
+    def test_read_activity_reads_affective_db_and_care_threads(self):
+        aff_db_path = self.root / "affective.db"
+        db = sqlite3.connect(aff_db_path)
+        try:
+            db.execute("""
+                CREATE TABLE affect_states (
+                    scope TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL,
+                    valence REAL NOT NULL,
+                    arousal REAL NOT NULL,
+                    longing REAL NOT NULL,
+                    pout REAL NOT NULL,
+                    share_urge REAL NOT NULL,
+                    warmth_bond REAL NOT NULL,
+                    dominant_tag TEXT NOT NULL,
+                    softened_mode TEXT NOT NULL,
+                    last_settled_at REAL NOT NULL,
+                    last_interaction_at REAL NOT NULL,
+                    last_sleep_reset_day TEXT NOT NULL
+                )
+            """)
+            db.execute("""
+                CREATE TABLE care_threads (
+                    id TEXT PRIMARY KEY,
+                    scope TEXT NOT NULL,
+                    topic TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    salience REAL NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    expires_at REAL NOT NULL
+                )
+            """)
+            db.execute(
+                "INSERT INTO affect_states VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (SCOPE, "12345", -0.42, 0.68, 0.2, 0.35, 0.5, 12.0, "低落", "none", self.now - 100, self.now - 10, "2026-11-07")
+            )
+            # Active and valid
+            db.execute(
+                "INSERT INTO care_threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("t1", SCOPE, "主人提起的画展", "interest", 0.8, "active", self.now - 100, self.now, self.now + 3600)
+            )
+            # Expired
+            db.execute(
+                "INSERT INTO care_threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("t2", SCOPE, "过期的事情", "task", 0.5, "active", self.now - 200, self.now, self.now - 10)
+            )
+            # Resolved
+            db.execute(
+                "INSERT INTO care_threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("t3", SCOPE, "已解决的事情", "task", 0.5, "resolved", self.now - 100, self.now, self.now + 3600)
+            )
+            # Other scope
+            db.execute(
+                "INSERT INTO care_threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("t4", "qq:FriendMessage:9999", "别人的事", "other", 0.5, "active", self.now - 100, self.now, self.now + 3600)
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        result = self.read()
+        aff = result["affect"]
+        self.assertEqual(aff["state"], "ready")
+        self.assertAlmostEqual(aff["valence"], -0.42)
+        self.assertAlmostEqual(aff["arousal"], 0.68)
+        self.assertAlmostEqual(aff["pout"], 0.35)
+        self.assertEqual(aff["dominant_tag"], "低落")
+        self.assertEqual(len(aff["care_threads"]), 1)
+        self.assertEqual(aff["care_threads"][0]["id"], "t1")
+        self.assertEqual(aff["care_threads"][0]["topic"], "主人提起的画展")
+        self.assertEqual(aff["care_threads"][0]["category"], "interest")
+
+    def test_read_activity_salience_zero_preserved_and_dimensions_clamped(self):
+        aff_db_path = self.root / "affective.db"
+        db = sqlite3.connect(aff_db_path)
+        try:
+            db.execute("""
+                CREATE TABLE affect_states (
+                    scope TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL,
+                    valence REAL NOT NULL,
+                    arousal REAL NOT NULL,
+                    longing REAL NOT NULL,
+                    pout REAL NOT NULL,
+                    share_urge REAL NOT NULL,
+                    warmth_bond REAL NOT NULL,
+                    dominant_tag TEXT NOT NULL,
+                    softened_mode TEXT NOT NULL,
+                    last_settled_at REAL NOT NULL,
+                    last_interaction_at REAL NOT NULL,
+                    last_sleep_reset_day TEXT NOT NULL
+                )
+            """)
+            db.execute("""
+                CREATE TABLE care_threads (
+                    id TEXT PRIMARY KEY,
+                    scope TEXT NOT NULL,
+                    topic TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    salience REAL NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    expires_at REAL NOT NULL
+                )
+            """)
+            # Extreme values: valence=5.0 -> 1.0, arousal=2.0 -> 1.0
+            db.execute(
+                "INSERT INTO affect_states VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (SCOPE, "12345", 5.0, 2.0, -1.0, 3.0, 2.5, 2000.0, "极度开心", "none", self.now - 50, self.now - 10, "2026-11-07")
+            )
+            # salience = 0.0 must be preserved as 0.0, negative clamped to 0.0, > 10.0 clamped to 10.0
+            db.execute(
+                "INSERT INTO care_threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("t0", SCOPE, "零显著度事项", "general", 0.0, "active", self.now - 50, self.now, self.now + 3600)
+            )
+            db.execute(
+                "INSERT INTO care_threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("t_neg", SCOPE, "负显著度事项", "general", -2.5, "active", self.now - 40, self.now, self.now + 3600)
+            )
+            db.execute(
+                "INSERT INTO care_threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("t_max", SCOPE, "超大显著度事项", "general", 15.0, "active", self.now - 30, self.now, self.now + 3600)
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        result = self.read()
+        aff = result["affect"]
+        self.assertEqual(aff["state"], "ready")
+        self.assertEqual(aff["valence"], 1.0)
+        self.assertEqual(aff["arousal"], 1.0)
+        self.assertEqual(aff["longing"], 0.0)
+        self.assertEqual(aff["pout"], 1.0)
+        self.assertEqual(aff["share_urge"], 1.0)
+        self.assertEqual(aff["warmth_bond"], 1000.0)
+        self.assertEqual(len(aff["care_threads"]), 3)
+        salience_map = {t["id"]: t["salience"] for t in aff["care_threads"]}
+        self.assertEqual(salience_map["t0"], 0.0)
+        self.assertEqual(salience_map["t_neg"], 0.0)
+        self.assertEqual(salience_map["t_max"], 10.0)
+
+    def test_read_affect_per_statement_timeout_resets_budget(self):
+        aff_db_path = self.root / "affective.db"
+        db = sqlite3.connect(aff_db_path)
+        try:
+            db.execute("""
+                CREATE TABLE affect_states (
+                    scope TEXT PRIMARY KEY, owner_id TEXT NOT NULL,
+                    valence REAL NOT NULL, arousal REAL NOT NULL, longing REAL NOT NULL,
+                    pout REAL NOT NULL, share_urge REAL NOT NULL, warmth_bond REAL NOT NULL,
+                    dominant_tag TEXT NOT NULL, softened_mode TEXT NOT NULL,
+                    last_settled_at REAL NOT NULL, last_interaction_at REAL NOT NULL,
+                    last_sleep_reset_day TEXT NOT NULL
+                )
+            """)
+            db.execute("""
+                CREATE TABLE care_threads (
+                    id TEXT PRIMARY KEY, scope TEXT NOT NULL, topic TEXT NOT NULL,
+                    category TEXT NOT NULL, salience REAL NOT NULL, status TEXT NOT NULL,
+                    created_at REAL NOT NULL, updated_at REAL NOT NULL, expires_at REAL NOT NULL
+                )
+            """)
+            db.execute(
+                "INSERT INTO affect_states VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (SCOPE, "12345", 0.5, 0.5, 0.0, 0.0, 0.0, 0.0, "平静", "none", self.now - 10, self.now - 5, "2026-11-07")
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        # Simulate 4 consecutive queries each advancing 2 seconds (total 8s).
+        # Under the old single 3s deadline, this would have timed out.
+        # Under per-statement 5s budget, each query resets deadline and succeeds.
+        current_mono = [100.0]
+        real_mono = time.monotonic
+
+        def stepping_monotonic():
+            current_mono[0] += 0.5
+            return current_mono[0]
+
+        with patch("time.monotonic", side_effect=stepping_monotonic):
+            result = self.read()
+            self.assertEqual(result["affect"]["state"], "ready")
+            self.assertEqual(result["affect"]["dominant_tag"], "平静")
+
+    def test_read_activity_missing_table_and_empty_states_fallbacks(self):
+        # Case 1: Missing affect_states table (only care_threads exists) -> fallback unavailable
+        aff_db_path = self.root / "affective.db"
+        db = sqlite3.connect(aff_db_path)
+        try:
+            db.execute("""
+                CREATE TABLE care_threads (
+                    id TEXT PRIMARY KEY, scope TEXT NOT NULL, topic TEXT NOT NULL,
+                    category TEXT NOT NULL, salience REAL NOT NULL, status TEXT NOT NULL,
+                    created_at REAL NOT NULL, updated_at REAL NOT NULL, expires_at REAL NOT NULL
+                )
+            """)
+            db.execute(
+                "INSERT INTO care_threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("t1", SCOPE, "有牵挂但无状态表", "general", 0.7, "active", self.now - 10, self.now, self.now + 3600)
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        res1 = self.read()
+        self.assertEqual(res1["affect"]["state"], "unavailable")
+        self.assertEqual(res1["affect"]["care_threads"], [])
+
+        # Case 2: affect_states table exists but has no row for SCOPE -> state is ready with care_threads
+        db = sqlite3.connect(aff_db_path)
+        try:
+            db.execute("""
+                CREATE TABLE affect_states (
+                    scope TEXT PRIMARY KEY, owner_id TEXT NOT NULL, valence REAL NOT NULL,
+                    arousal REAL NOT NULL, longing REAL NOT NULL, pout REAL NOT NULL,
+                    share_urge REAL NOT NULL, warmth_bond REAL NOT NULL, dominant_tag TEXT NOT NULL,
+                    softened_mode TEXT NOT NULL, last_settled_at REAL NOT NULL,
+                    last_interaction_at REAL NOT NULL, last_sleep_reset_day TEXT NOT NULL
+                )
+            """)
+            db.commit()
+        finally:
+            db.close()
+
+        res2 = self.read()
+        self.assertEqual(res2["affect"]["state"], "ready")
+        self.assertEqual(res2["affect"]["valence"], 0.0)
+        self.assertEqual(len(res2["affect"]["care_threads"]), 1)
+        self.assertEqual(res2["affect"]["care_threads"][0]["topic"], "有牵挂但无状态表")
+
+    def test_read_activity_candidate_paths_custom_and_sibling(self):
+        # Case A: custom affective_data_dir
+        with tempfile.TemporaryDirectory() as custom_dir:
+            custom_db = Path(custom_dir) / "affective.db"
+            db = sqlite3.connect(custom_db)
+            try:
+                db.execute("CREATE TABLE affect_states (scope TEXT PRIMARY KEY, owner_id TEXT, valence REAL, arousal REAL, longing REAL, pout REAL, share_urge REAL, warmth_bond REAL, dominant_tag TEXT, softened_mode TEXT, last_settled_at REAL, last_interaction_at REAL, last_sleep_reset_day TEXT)")
+                db.execute("CREATE TABLE care_threads (id TEXT PRIMARY KEY, scope TEXT, topic TEXT, category TEXT, salience REAL, status TEXT, created_at REAL, updated_at REAL, expires_at REAL)")
+                db.execute("INSERT INTO affect_states VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (SCOPE, "12345", 0.33, 0.44, 0, 0, 0, 0, "自定义目录", "none", self.now, self.now, "2026-11-07"))
+                db.commit()
+            finally:
+                db.close()
+
+            self.cfg["affective_data_dir"] = custom_dir
+            self.write_config()
+            res = self.read()
+            self.assertEqual(res["affect"]["state"], "ready")
+            self.assertAlmostEqual(res["affect"]["valence"], 0.33)
+            self.assertEqual(res["affect"]["dominant_tag"], "自定义目录")
+
+        # Case B: sibling astrbot_plugin_affective_core directory
+        self.cfg.pop("affective_data_dir", None)
+        self.write_config()
+        sibling_dir = self.root.parent / "astrbot_plugin_affective_core"
+        sibling_dir.mkdir(parents=True, exist_ok=True)
+        sibling_db = sibling_dir / "affective.db"
+        try:
+            db = sqlite3.connect(sibling_db)
+            try:
+                db.execute("CREATE TABLE affect_states (scope TEXT PRIMARY KEY, owner_id TEXT, valence REAL, arousal REAL, longing REAL, pout REAL, share_urge REAL, warmth_bond REAL, dominant_tag TEXT, softened_mode TEXT, last_settled_at REAL, last_interaction_at REAL, last_sleep_reset_day TEXT)")
+                db.execute("CREATE TABLE care_threads (id TEXT PRIMARY KEY, scope TEXT, topic TEXT, category TEXT, salience REAL, status TEXT, created_at REAL, updated_at REAL, expires_at REAL)")
+                db.execute("INSERT INTO affect_states VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (SCOPE, "12345", -0.75, 0.2, 0, 0, 0, 0, "同级目录", "none", self.now, self.now, "2026-11-07"))
+                db.commit()
+            finally:
+                db.close()
+
+            res_sibling = self.read()
+            self.assertEqual(res_sibling["affect"]["state"], "ready")
+            self.assertAlmostEqual(res_sibling["affect"]["valence"], -0.75)
+            self.assertEqual(res_sibling["affect"]["dominant_tag"], "同级目录")
+        finally:
+            if sibling_db.exists():
+                sibling_db.unlink()
+            if sibling_dir.exists():
+                sibling_dir.rmdir()
+
+    def test_read_activity_preserves_affective_db_file_mtime_and_size(self):
+        aff_db_path = self.root / "affective.db"
+        db = sqlite3.connect(aff_db_path)
+        try:
+            db.execute("CREATE TABLE affect_states (scope TEXT PRIMARY KEY, owner_id TEXT, valence REAL, arousal REAL, longing REAL, pout REAL, share_urge REAL, warmth_bond REAL, dominant_tag TEXT, softened_mode TEXT, last_settled_at REAL, last_interaction_at REAL, last_sleep_reset_day TEXT)")
+            db.execute("CREATE TABLE care_threads (id TEXT PRIMARY KEY, scope TEXT, topic TEXT, category TEXT, salience REAL, status TEXT, created_at REAL, updated_at REAL, expires_at REAL)")
+            db.execute("INSERT INTO affect_states VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (SCOPE, "12345", 0.5, 0.5, 0, 0, 0, 0, "静默检查", "none", self.now, self.now, "2026-11-07"))
+            db.commit()
+        finally:
+            db.close()
+
+        stat_before = aff_db_path.stat()
+        res = self.read()
+        self.assertEqual(res["affect"]["state"], "ready")
+        stat_after = aff_db_path.stat()
+
+        self.assertEqual(stat_before.st_mtime_ns, stat_after.st_mtime_ns)
+        self.assertEqual(stat_before.st_size, stat_after.st_size)
+
+    def test_ssh_uses_fixed_stdin_reader_and_sanitizes_failures(self):
+        run = Mock(return_value=types.SimpleNamespace(returncode=0,stdout=json.dumps({"ok":True,"snapshot":demo_room()})))
+        source = SSHActivitySource(host="example.test",key=self.root/"fake-key",run=run)
+        self.assertEqual(source.load()["schema"],"dafeiyu-room/v1")
+        args,kwargs=run.call_args
+        self.assertIn("StrictHostKeyChecking=yes",args[0])
+        self.assertIn("mode=ro",kwargs["input"])
+        self.assertNotIn("Store(",kwargs["input"])
+        run.return_value=types.SimpleNamespace(returncode=1,stdout="TOKEN secret URL response")
+        with self.assertRaises(ActivityError) as error: source.load()
+        self.assertNotIn("TOKEN",str(error.exception))
+
+
+class RoomHTTPTests(unittest.TestCase):
+    request = existing.LocalServerTests.request
+
+    def setUp(self):
+        self.source = Mock()
+        self.data = demo_room() | {"mode":"activity","connection":"ready","as_of":time.time()}
+        self.source.load.return_value = copy.deepcopy(self.data)
+        self.server = ObservatoryServer(("127.0.0.1",0),activity_source=self.source)
+        self.thread=threading.Thread(target=self.server.serve_forever,daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.shutdown();self.server.server_close();self.thread.join()
+
+    def test_assets_and_cached_views_do_not_refresh_or_change_memory(self):
+        before=self.request("/api/snapshot")[2]
+        for path in ("/room","/room.js","/room.css","/room-scene.js","/room-projects.js","/cozy.css",
+                     "/character-credits","/character-license","/api/room"):
+            status,headers,body=self.request(path)
+            self.assertEqual(status,200)
+            self.assertEqual(headers["Cache-Control"],"no-store")
+        self.assertEqual(self.source.load.call_count,1)
+        self.assertEqual(before,self.request("/api/snapshot")[2])
+
+    def test_character_assets_are_explicit_and_do_not_expose_other_files(self):
+        for name in ("idle", "walk", "desk", "shelf", "window", "rest"):
+            status, headers, body = self.request(f"/character/{name}.png")
+            self.assertEqual(status, 200)
+            self.assertEqual(headers["Content-Type"], "image/png")
+            self.assertTrue(body.startswith(b"\x89PNG\r\n\x1a\n"))
+            self.assertEqual(struct.unpack(">II", body[16:24]), (1786, 894), name)
+        for path in ("/character/../server.py", "/character/cookies.json", "/character/unknown.png"):
+            self.assertEqual(self.request(path)[0], 404)
+        self.assertEqual(self.source.load.call_count, 1)
+
+    def test_refresh_failure_marks_old_snapshot_stale_and_recovery_is_explicit(self):
+        self.source.load.side_effect=ActivityError("private failure")
+        self.assertEqual(self.request("/api/room/refresh",{})[0],503)
+        stale=json.loads(self.request("/api/room")[2])
+        self.assertEqual(stale["connection"],"stale")
+        self.assertEqual(stale["goals"],self.data["goals"])
+        self.assertEqual(stale["projects"],self.data["projects"])
+        self.source.load.side_effect=None
+        self.assertEqual(json.loads(self.request("/api/room/refresh",{})[2])["connection"],"ready")
+
+    def test_source_failure_never_falls_back_to_fiction(self):
+        with self.server.lock:
+            self.server.activity_snapshot=None
+            self.server.activity_state="unavailable"
+        result=json.loads(self.request("/api/room")[2])
+        self.assertEqual(result["mode"],"unavailable")
+        self.assertEqual(result["goals"],[])
+
+    def test_initial_activity_failure_keeps_memory_available_without_demo_room(self):
+        broken=Mock()
+        broken.load.side_effect=ActivityError("private diagnostic")
+        with ObservatoryServer(("127.0.0.1",0),activity_source=broken) as server:
+            self.assertTrue(server.view()["memories"])
+            self.assertEqual(server.room_view()["mode"],"unavailable")
+            self.assertEqual(server.room_view()["connection"],"unavailable")
+
+    def test_missing_life_source_with_real_or_imported_memory_is_not_demo(self):
+        with self.server.lock:
+            self.server.activity_snapshot=None;self.server.activity_source=None;self.server.activity_state="unconfigured";self.server.demo=False
+        self.assertEqual(json.loads(self.request("/api/room")[2])["mode"],"unavailable")
+        self.server.demo=True
+        self.assertEqual(json.loads(self.request("/api/room")[2])["mode"],"demo")
+
+    def test_http_cannot_change_source_scope_or_invoke_bot(self):
+        for payload in ({"path":"cookies.json"},{"scope":"other"},{"action":"start"}):
+            self.assertEqual(self.request("/api/room/refresh",payload)[0],400)
+        self.assertEqual(self.request("/api/room/execute",{})[0],404)
+        self.assertEqual(self.request("/api/room",headers={"Origin":"https://other.test"})[0],403)
+        self.assertEqual(self.source.load.call_count,1)
+
+    def test_refresh_single_flight(self):
+        entered,release=threading.Event(),threading.Event()
+        def load():
+            entered.set();release.wait(3);return copy.deepcopy(self.data)
+        self.source.load.side_effect=load
+        result=[]
+        thread=threading.Thread(target=lambda:result.append(self.request("/api/room/refresh",{})[0]))
+        thread.start()
+        try:
+            self.assertTrue(entered.wait(2))
+            self.assertEqual(self.request("/api/room/refresh",{})[0],409)
+        finally: release.set();thread.join()
+        self.assertEqual(result,[200])
+
+    def test_snapshot_age_marks_stale_without_upstream_io(self):
+        self.server.activity_loaded_at=time.monotonic()-181
+        stale=json.loads(self.request("/api/room")[2])
+        self.assertEqual(stale["connection"],"stale")
+        self.assertGreaterEqual(stale["age_seconds"],180)
+        self.assertEqual(self.source.load.call_count,1)
+
+    def test_remote_clock_skew_does_not_mark_fresh_snapshot_stale(self):
+        self.server.activity_snapshot["as_of"]=time.time()-3600
+        view=json.loads(self.request("/api/room")[2])
+        self.assertEqual(view["connection"],"ready")
+        self.assertLess(view["age_seconds"],180)
+        self.assertEqual(self.source.load.call_count,1)
+
+
+if __name__=="__main__": unittest.main()

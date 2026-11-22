@@ -1,5 +1,7 @@
 # 大肥鱼 B 站自主活动与截图分享
 
+已部署增量：[生活决策 v0.1](LIFE_DECISION_V01.md)。在现有活动入口选择研究、写作、探索或休息，保存理由与排除依据；2026-10-29 已部署到云端并开启 planner、`enabled` 与 `periodic_enabled`，首轮真实决策 `writing` 已完成（作品 r7，目标 completed）。以下保留原有部署说明与历史验收边界。
+
 当前代码为自主生活 **v0.4.1**（v0.4.0 研究方法 + 工具截图上下文修复），在[持续目标、经历与预算](LIFE_V02.md)、[来源笔记与自主续写](LIFE_V03.md)之上增加[研究方法提炼、版本与复用结果](LIFE_V04.md)。新功能默认关闭，现有人格、周期与免打扰配置保留。
 
 部署进度见 [VALIDATION.md](VALIDATION.md)：2026-10-25 的 v0.3.0 已上线并完成记录中的真实 smoke，Windows/Linux 基线均为 215 项测试 OK。当前 v0.4 methods 合并保留上述修复与验收记录；本次仅做本地合并及回归，未部署 v0.4。methods 的真实 Agent、QQ、记忆及跨日验收仍待完成。早期检查记录见 [AUDIT.md](AUDIT.md)。
@@ -56,7 +58,7 @@ Bili 服务使用真正的 MCP Streamable HTTP；PhoneMCP 继续使用 SSE。云
    .\.venv\Scripts\python.exe .\preflight.py --adb D:\leidian\LDPlayer14\adb.exe --ffmpeg-dir D:\AI\BiliActivity\bin --port 8011
    ```
 
-   需要登录自启时，运行 `.\install_bili_autostart.ps1 -Server <主机>`（写入当前用户启动目录，不需要管理员；`-Remove` 卸载）。它只启动 Bili 服务与隧道，PhoneMCP 和模拟器仍需各自的启动方式。
+   需要登录自启时，运行 `.\install_bili_autostart.ps1 -Server <主机>`（写入当前用户启动目录，不需要管理员；`-Remove` 卸载）。不传 `-Server` 时读取 `DAFEIYU_SSH_HOST` 或 `~/.dafeiyu-admin/host`。它只启动 Bili 服务与隧道，PhoneMCP 和模拟器仍需各自的启动方式。
 
 4. 若没有可复用且验证有效的 B 站登录态，启动本地扫码。二维码只显示在本地，确认后凭证写入运行目录；不在聊天、日志或工具结果中返回 Cookie：
 
@@ -121,11 +123,17 @@ Bili 服务使用真正的 MCP Streamable HTTP；PhoneMCP 继续使用 SSE。云
 | 功能 | `control.json` 字段 / 默认 | 修改命令 |
 | --- | --- | --- |
 | 自主浏览 | `enabled=false`、`periodic_enabled=false` | `start` / `stop` / `enable-periodic` |
-| 发表评论、回复评论 | `public_interactions=false` | `ops.py switch public_interactions on` 或 `off` |
+| 发表评论、回复评论、发弹幕 | `public_interactions=false` | `ops.py switch public_interactions on` 或 `off` |
+| 点赞/取消赞、投币 | `engagement_actions=false` | `ops.py switch engagement_actions on` 或 `off` |
+| 回复监听、评论观察 | `reply_watch_enabled=false`、`comment_learning_enabled=false` | `ops.py switch <字段> on` 或 `off` |
 | 收藏、收藏夹、关注与取消关注 | `collection_management=false` | `ops.py switch collection_management on` 或 `off` |
 | 主动与被动截图分享 | `screenshot_enabled=true` | `ops.py switch screenshot_enabled on` 或 `off` |
 
-开关开启不代表同意某次具体写入。所有评论、收藏和关注变更仍需先展示对象和完整内容，收到同一主人私聊随后发来的“可以”才执行；“算了”撤销。提议默认一小时过期，同时最多一个未决提议。写入超时或结果不明会标为 `uncertain`，不得用新操作 ID 自动重试；先按账本中的对象和内容现场核对。
+默认 `interaction_mode=approval`：开关开启后仍需展示精确对象和完整内容，收到同一主人私聊随后发来的“可以”才执行；“算了”撤销。提议默认一小时过期，同时最多一个未决提议。v0.5 另有显式选择的自动模式，规则、推荐低配额、主人命令和回滚见 [INTERACT_V05.md](INTERACT_V05.md)。收藏/关注管理始终逐条审批。写入超时或结果不明会标为 `uncertain`，不得用新操作 ID 自动重试；先按账本中的对象和内容现场核对。
+
+主人可发 `/bili互动 清理不确定`，再追加提议 ID 查看两份账本摘要，按返回的五分钟凭据明确确认 `abandoned` 或 `verified`。这是人工处理决定，保留机器回读结果、operations 账本和已占额度/判重，不重新执行。该功能需要插件和伴随服务同时更新；账本不可读时拒绝清理。`bili_operation` 为控制器只读工具，不应向模型开放。
+
+审查后已按社区维护的 B站 Web API 文档校正点赞/弹幕、buvid3 和 WBI 参数，真实端点可用性仍待小号 smoke。`df_bili_status` 同时显示 `buvid3_present`；缺失时点赞/投币预览会尝试 SPI 获取，仍缺则零 POST。弹幕正向回执单独记 `accepted`，不等于 `verified` 或公开可见；匿名评论查询失败/未找到均为 `visibility=unknown`。投币的附带点赞单独显示 `like_ok`，`null` 表示尚未核实。
 
 `stop` 关闭后台浏览；主人主动请求截图仍由截图开关控制。完全停用图片分享需要另关 `screenshot_enabled`。参数修改示例：
 

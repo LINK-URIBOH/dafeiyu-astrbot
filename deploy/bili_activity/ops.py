@@ -15,12 +15,36 @@ from urllib.parse import urlsplit
 
 
 DEFAULTS = {
+    "engagement_actions": False, "interaction_mode": "approval", "auto_public": False,
+    "allowed_uids": [], "allowed_keywords": [],
+    "max_actions_per_run": 3, "max_actions_per_day": 20,
+    "max_comments_per_day": 3, "max_replies_per_day": 5, "max_danmaku_per_day": 1,
+    "max_likes_per_day": 10, "max_coins_per_day": 1,
+    "action_interval_ms": [1500, 4000], "risk_cooldown_minutes": 60,
+    "reply_watch_enabled": False, "reply_poll_minutes": 3,
+    "reply_max_threads_per_tick": 15, "reply_min_len": 8, "reply_lookback_hours": 24,
+    "reply_max_per_thread_per_day": 2,
+    "comment_learning_enabled": False, "learn_min_score": 7, "learn_recent_notes": 5,
+    "learn_prompt": "挑选有信息量、补充视频内容的评论；跳过纯情绪、复读和广告。",
     "enabled": False,
     "periodic_enabled": False,
     "public_interactions": False,
     "collection_management": False,
     "screenshot_enabled": True,
     "life_enabled": False,
+    "life_decision_enabled": False,
+    "life_repeat_cooldown_minutes": 180,
+    "life_rhythm_enabled": False,
+    "life_memory_enabled": False,
+    "life_memory_detail_days": 7, "life_memory_dormant_days": 60,
+    "self_expression_enabled": False, "self_expression_window_days": 14,
+    "life_projects_enabled": False, "project_active_limit": 2,
+    "project_max_stages": 3, "project_review_delay_hours": 24,
+    "life_sleep_hour": 23, "life_wake_hour": 8, "life_wind_down_minutes": 60,
+    "life_activity_window_minutes": 120, "life_activity_limit_minutes": 20,
+    "contact_coordination_enabled": False,
+    "contact_daily_limit": 3, "contact_cooldown_minutes": 90,
+    "contact_owner_quiet_minutes": 5, "contact_unanswered_limit": 2,
     "workshop_enabled": False,
     "methods_enabled": False,
     "workshop_revisions_per_run": 3,
@@ -43,15 +67,55 @@ DEFAULTS = {
     "once_at": None,
     "one_shot_verified": False,
     "device_id": "emulator-5554",
+    "phone_screen_width": 720, "phone_screen_height": 1280,
+    "phone_free_explore_enabled": False,
+    "phone_allowed_packages": ["tv.danmaku.bili", "com.ss.android.ugc.aweme"],
+    "phone_max_steps_per_run": 15,
+    "phone_audio_listen_seconds": 8,
+    "phone_tool_calls_per_turn": 40,
+    "phone_screenshots_per_turn": 8,
+    "douyin_enabled": False,
+    "douyin_public_interactions": False,
+    "douyin_engagement_actions": False,
+    "douyin_publish_enabled": False,
+    "douyin_interaction_mode": "approval",
+    "douyin_auto_public": False,
+    "douyin_max_videos_per_run": 3,
+    "douyin_max_likes_per_day": 15,
+    "douyin_max_favorites_per_day": 10,
+    "douyin_max_comments_per_day": 3,
+    "douyin_max_follows_per_day": 3,
+    "douyin_max_posts_per_day": 2,
+    "learning_enabled": False,
+    "learning_min_independent_sources": 2,
+    "learning_max_context_cards": 3,
 }
 DEFAULT_DATA_DIR = "/opt/dafeiyu/astrbot/data/plugin_data/astrbot_plugin_bili_activity"
 NUMERIC_LIMITS = {
+    "max_actions_per_run": (0, 10000), "max_actions_per_day": (0, 10000),
+    "max_comments_per_day": (0, 10000), "max_replies_per_day": (0, 10000),
+    "max_danmaku_per_day": (0, 10000), "max_likes_per_day": (0, 10000),
+    "max_coins_per_day": (0, 10000), "risk_cooldown_minutes": (1, 10000),
+    "reply_poll_minutes": (1, 1440), "reply_max_threads_per_tick": (1, 15),
+    "reply_min_len": (1, 1000), "reply_lookback_hours": (1, 720),
+    "reply_max_per_thread_per_day": (0, 100), "learn_min_score": (0, 10), "learn_recent_notes": (1, 20),
     "check_minutes": (1, 1440), "check_jitter_minutes": (0, 1440),
     "max_videos": (1, 10), "max_minutes": (1, 30),
     "daily_minutes": (1, 240), "max_model_calls_per_run": (1, 64),
     "daily_model_calls": (1, 1000), "daily_shares": (0, 50),
     "screenshots_per_run": (0, 10), "chat_cooldown_seconds": (0, 3600),
+    "phone_screen_width": (1, 4096), "phone_screen_height": (1, 4096),
+    "phone_tool_calls_per_turn": (1, 200), "phone_screenshots_per_turn": (0, 50),
     "workshop_revisions_per_run": (1, 10), "workshop_max_characters": (500, 20000),
+    "life_repeat_cooldown_minutes": (15, 1440),
+    "life_sleep_hour": (0, 23), "life_wake_hour": (0, 23),
+    "life_wind_down_minutes": (0, 180), "life_activity_window_minutes": (30, 720),
+    "life_activity_limit_minutes": (1, 120),
+    "life_memory_detail_days": (1, 90), "life_memory_dormant_days": (1, 365),
+    "self_expression_window_days": (7, 90),
+    "project_active_limit": (1, 4), "project_max_stages": (1, 6), "project_review_delay_hours": (1, 168),
+    "contact_daily_limit": (0, 50), "contact_cooldown_minutes": (1, 1440),
+    "contact_owner_quiet_minutes": (0, 1440), "contact_unanswered_limit": (1, 20),
 }
 
 
@@ -85,6 +149,20 @@ def validate_url(value):
         raise ValueError("MCP 地址必须是无凭证的 HTTP/HTTPS URL；不要把凭证放入配置或日志")
 
 
+def validate_rhythm_settings(control):
+    for key in ("life_sleep_hour", "life_wake_hour", "life_wind_down_minutes",
+                "life_activity_window_minutes", "life_activity_limit_minutes"):
+        value = control.get(key)
+        low, high = NUMERIC_LIMITS[key]
+        if type(value) is not int or not low <= value <= high:
+            raise ValueError(f"{key} 必须为 {low}–{high} 的整数")
+    awake = (control["life_sleep_hour"] - control["life_wake_hour"]) % 24 * 60
+    if not awake or control["life_wind_down_minutes"] >= awake:
+        raise ValueError("睡眠与起床时间须不同，睡前整理时段须短于清醒时段")
+    if control["life_activity_limit_minutes"] > control["life_activity_window_minutes"]:
+        raise ValueError("活动时长阈值不能大于观察窗口")
+
+
 def validate_dnd(ranges):
     if not isinstance(ranges, list):
         raise ValueError("dnd_ranges 必须为 [[\"23:00\",\"08:00\"]] 形式的数组")
@@ -97,6 +175,15 @@ def validate_dnd(ranges):
             hour, minute = map(int, item.split(":"))
             if not (0 <= hour < 24 and 0 <= minute < 60):
                 raise ValueError("免打扰时间超出范围")
+
+
+def validate_memory_settings(control):
+    for key in ("life_memory_detail_days", "life_memory_dormant_days"):
+        low, high = NUMERIC_LIMITS[key]
+        if type(control[key]) is not int or not low <= control[key] <= high:
+            raise ValueError(f"{key} 必须是 {low}–{high} 的整数")
+    if control["life_memory_detail_days"] >= control["life_memory_dormant_days"]:
+        raise ValueError("记忆细节保留期必须短于淡出期")
 
 
 @contextmanager
@@ -168,6 +255,26 @@ def read_episodes(folder, scope, limit=8, goal_id=None):
                      "SELECT id,goal_id,run_id,occurred_at,kind,subject_kind,subject_id,source_id "
                      "FROM episodes WHERE scope=?" + where + " ORDER BY occurred_at DESC LIMIT ?",
                      params, optional_table="episodes")
+
+
+def read_life_decisions(folder, scope, limit=8):
+    rows = read_rows(folder, "SELECT details FROM events WHERE scope=? "
+                    "AND kind IN ('life_decision','life_rest') ORDER BY seq DESC LIMIT ?",
+                    (scope, max(1, min(32, limit))), optional_table="events")
+    result = []
+    for row in rows:
+        item = json.loads(row["details"])
+        run = read_rows(folder, "SELECT status FROM runs WHERE scope=? AND id=?",
+                        (scope, item["run_id"]), optional_table="runs")
+        item["run_status"] = run[0]["status"] if run else "rested" if item["action"] == "rest" else "not_started"
+        result.append(item)
+    return result
+
+
+def read_contacts(folder, scope):
+    return read_rows(folder, "SELECT source,kind,day,created,dispatched,finished,status,message_id "
+                     "FROM contact_attempts WHERE scope=? ORDER BY created DESC,rowid DESC LIMIT 8",
+                     (scope,), optional_table="contact_attempts")
 
 
 def read_budget(folder, scope):
@@ -288,6 +395,11 @@ def main(argv=None):
     for name in ("init", "start", "stop", "status", "enable-periodic", "disable-periodic"):
         sub.add_parser(name)
     cfg = sub.add_parser("configure")
+    cfg.add_argument("--interaction-mode", choices=["approval", "auto_low_risk", "auto_public"])
+    cfg.add_argument("--action-interval-ms", type=int, nargs=2)
+    cfg.add_argument("--allowed-uids")
+    cfg.add_argument("--allowed-keywords")
+    cfg.add_argument("--learn-prompt")
     cfg.add_argument("--owner-scope")
     cfg.add_argument("--owner-id")
     cfg.add_argument("--dnd-ranges", help='JSON, e.g. [["23:00","08:00"]]; copy the actual current settings')
@@ -299,7 +411,7 @@ def main(argv=None):
     once = sub.add_parser("once")
     once.add_argument("--delay-seconds", type=int, default=180)
     switches = sub.add_parser("switch")
-    switches.add_argument("name", choices=["public_interactions", "collection_management", "screenshot_enabled", "life_enabled", "workshop_enabled", "methods_enabled"])
+    switches.add_argument("name", choices=["public_interactions", "engagement_actions", "collection_management", "screenshot_enabled", "life_enabled", "life_decision_enabled", "life_rhythm_enabled", "life_memory_enabled", "self_expression_enabled", "life_projects_enabled", "contact_coordination_enabled", "workshop_enabled", "methods_enabled", "reply_watch_enabled", "comment_learning_enabled", "auto_public"])
     switches.add_argument("value", choices=["on", "off"])
     accepted = sub.add_parser("accept-one-shot")
     accepted.add_argument("--evidence", type=Path, required=True,
@@ -309,6 +421,9 @@ def main(argv=None):
     goals = sub.add_parser("goals", help="只读查看当前主人私聊的持续目标")
     goals.add_argument("--limit", type=int, default=8)
     goals.add_argument("--all", action="store_true", help="同时显示已完成或已取消目标")
+    decisions = sub.add_parser("life-decisions", help="只读查看生活选择与理由；选择不等于执行成功")
+    decisions.add_argument("--limit", type=int, default=8)
+    sub.add_parser("contacts", help="只读查看两种主动联系入口的最近记录")
     episodes = sub.add_parser("episodes", help="只读查看当前主人私聊的经历索引")
     episodes.add_argument("--limit", type=int, default=8)
     episodes.add_argument("--goal-id")
@@ -339,11 +454,23 @@ def main(argv=None):
                           "deliveries": read_rows(folder, "SELECT id,kind,status,created,receipt FROM deliveries ORDER BY created DESC LIMIT 10"),
                           "goals": read_goals(folder, control["owner_scope"]),
                           "episodes": read_episodes(folder, control["owner_scope"]),
+                          "life_decisions": read_life_decisions(folder, control["owner_scope"]),
+                          "contacts": read_contacts(folder, control["owner_scope"]),
                           "budget": read_budget(folder, control["owner_scope"]),
                           "works": read_works(folder, control["owner_scope"]),
                           "methods": read_methods(folder, control["owner_scope"]),
                           "method_attempts": read_method_attempts(folder, control["owner_scope"])},
                          ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "contacts":
+        control = load_control(folder)
+        print(json.dumps({"enabled": control["contact_coordination_enabled"],
+                          "daily_limit": control["contact_daily_limit"],
+                          "recent": read_contacts(folder, control["owner_scope"])}, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "life-decisions":
+        control = load_control(folder)
+        print(json.dumps(read_life_decisions(folder, control["owner_scope"], args.limit), ensure_ascii=False, indent=2))
         return 0
     if args.command == "method":
         control = load_control(folder)
@@ -384,6 +511,25 @@ def main(argv=None):
             print("配置已存在，保持原样。")
             return 0
         if args.command == "configure":
+            for field in ("interaction_mode", "learn_prompt", "action_interval_ms", "allowed_uids", "allowed_keywords"):
+                value = getattr(args, field)
+                if value is None:
+                    continue
+                if field == "learn_prompt" and len(value) > 1000:
+                    raise ValueError("learn_prompt 最多 1000 字")
+                if field == "action_interval_ms" and not 0 <= value[0] <= value[1] <= 60000:
+                    raise ValueError("action_interval_ms 必须为 0..60000 的递增范围")
+                if field in {"allowed_uids", "allowed_keywords"}:
+                    value = json.loads(value)
+                    if not isinstance(value, list) or len(value) > 100:
+                        raise ValueError(f"invalid {field}")
+                    if field == "allowed_uids" and any(type(v) not in (str, int) or not str(v).isascii() or not str(v).isdigit() or int(v) <= 0 for v in value):
+                        raise ValueError("allowed_uids 必须为 UID 数组")
+                    if field == "allowed_keywords" and any(not isinstance(v, str) or not v.strip() or len(v) > 100 for v in value):
+                        raise ValueError("allowed_keywords 必须为关键词数组")
+                control[field] = value
+                if field == "interaction_mode":
+                    control["auto_public"] = value == "auto_public"
             for field in ("owner_scope", "owner_id", "phone_url", "bili_url", "device_id", *NUMERIC_LIMITS):
                 value = getattr(args, field)
                 if value is not None:
@@ -400,6 +546,8 @@ def main(argv=None):
                 ranges = json.loads(args.dnd_ranges)
                 validate_dnd(ranges)
                 control["dnd_ranges"] = ranges
+            validate_rhythm_settings(control)
+            validate_memory_settings(control)
         elif args.command in {"start", "once", "enable-periodic"}:
             ready(control)
             control["enabled"] = True
@@ -416,6 +564,37 @@ def main(argv=None):
         elif args.command == "disable-periodic":
             control["periodic_enabled"] = False
         elif args.command == "switch":
+            if args.name == "life_projects_enabled" and args.value == "on":
+                ready(control)
+                if any(control[k] is not True for k in ("life_enabled", "workshop_enabled", "life_decision_enabled", "one_shot_verified")):
+                    raise ValueError("先验收生活功能并开启创作和生活决策，再开启项目")
+                for key in ("project_active_limit", "project_max_stages", "project_review_delay_hours"):
+                    low, high = NUMERIC_LIMITS[key]
+                    if type(control[key]) is not int or not low <= control[key] <= high:
+                        raise ValueError(f"{key} 必须是 {low}–{high} 的整数")
+            if args.name == "self_expression_enabled" and args.value == "on":
+                ready(control)
+                if control["life_enabled"] is not True:
+                    raise ValueError("先开启生活功能，再开启近况回顾")
+                days = control["self_expression_window_days"]
+                if type(days) is not int or not 7 <= days <= 90:
+                    raise ValueError("self_expression_window_days 必须是 7–90 的整数")
+            if args.name == "life_memory_enabled" and args.value == "on":
+                ready(control)
+                if control["life_enabled"] is not True or control["one_shot_verified"] is not True:
+                    raise ValueError("先完成一次性活动验收并开启生活功能，再开启经历记忆策略")
+                validate_memory_settings(control)
+            if args.name == "life_rhythm_enabled" and args.value == "on":
+                ready(control)
+                if any(control[key] is not True for key in ("life_enabled", "life_decision_enabled", "one_shot_verified")):
+                    raise ValueError("先完成一次性活动验收并开启生活功能和生活决策，再开启节律")
+                validate_rhythm_settings(control)
+            if args.name == "contact_coordination_enabled" and args.value == "on":
+                ready(control)
+            if args.name == "life_decision_enabled" and args.value == "on":
+                ready(control)
+                if control["life_enabled"] is not True or control["one_shot_verified"] is not True:
+                    raise ValueError("先完成一次性活动验收并开启 life_enabled，再开启生活决策")
             if args.name == "life_enabled" and args.value == "on":
                 ready(control)
                 if control["one_shot_verified"] is not True:

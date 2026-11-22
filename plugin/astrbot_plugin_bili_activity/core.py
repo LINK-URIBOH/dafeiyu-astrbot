@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sqlite3
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -14,11 +16,17 @@ from zoneinfo import ZoneInfo
 from .life import LifeState, prepare_database
 
 
-WRITES = {
+BILI_WRITES = {
     "comment", "reply", "follow", "unfollow", "favorite_add", "favorite_remove",
-    "folder_create", "folder_rename", "favorite_move",
+    "folder_create", "folder_rename", "favorite_move", "like", "coin", "danmaku",
 }
-PUBLIC = {"comment", "reply"}
+DOUYIN_WRITES = {
+    "douyin_like", "douyin_favorite", "douyin_follow",
+    "douyin_comment", "douyin_reply", "douyin_post",
+}
+WRITES = BILI_WRITES | DOUYIN_WRITES
+PUBLIC = {"comment", "reply", "danmaku"}
+ENGAGEMENT = {"like", "coin"}
 
 
 def canonical(value):
@@ -27,6 +35,27 @@ def canonical(value):
 
 def digest(value):
     return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+STALE_DECISION_SECONDS = 5
+
+
+def _event_timestamp(value):
+    """Best-effort epoch seconds; None means staleness cannot be proven."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.timestamp()
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        try:
+            number = float(value)
+        except ValueError:
+            return None
+    else:
+        return None
+    return number if math.isfinite(number) else None
 
 
 def quiet_now(ranges, now=None):
@@ -43,9 +72,12 @@ def quiet_now(ranges, now=None):
 
 def decision(text):
     value = text.strip().rstrip("。！!~～ ")
-    if value in {"可以", "同意", "好", "好的", "执行", "可以呀", "行"}:
+    if value in {"可以", "同意", "好", "好的", "执行", "可以呀", "行",
+                 "批", "批准", "批准点赞", "批准执行", "批准发布", "发吧",
+                 "确认", "确认执行", "确认发布", "同意执行", "同意发布"}:
         return "approve"
-    if value in {"算了", "取消", "不同意", "不要", "别发", "不行"}:
+    if value in {"算了", "取消", "不同意", "不要", "别发", "不行",
+                 "拒绝", "停", "先不要", "别点", "不批准"}:
         return "reject"
     return None
 
@@ -56,7 +88,8 @@ class Store:
         self.folder.mkdir(parents=True, exist_ok=True)
         path = self.folder / "activity.sqlite3"
         existed = path.exists()
-        self.db = sqlite3.connect(path, isolation_level=None)
+        self._lock = threading.RLock()
+        self.db = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         try:
             self.schema_backup = prepare_database(self.db, self.folder, existed)
@@ -66,9 +99,10 @@ class Store:
             raise
 
     def _initialize(self):
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("PRAGMA busy_timeout=5000")
-        self.db.executescript("""
+        with self._lock:
+            self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.execute("PRAGMA busy_timeout=5000")
+            self.db.executescript("""
         CREATE TABLE IF NOT EXISTS proposals (
           id TEXT PRIMARY KEY, scope TEXT NOT NULL, actor TEXT NOT NULL,
           action TEXT NOT NULL, args TEXT NOT NULL, fingerprint TEXT NOT NULL,
@@ -98,34 +132,38 @@ class Store:
           scope TEXT NOT NULL, actor TEXT NOT NULL, event_id TEXT NOT NULL,
           proposal_id TEXT NOT NULL, PRIMARY KEY(scope,actor,event_id));
         """)
-        self.life = LifeState(self)
-        # An interrupted non-idempotent call must never be blindly resubmitted.
-        self.db.execute("UPDATE proposals SET status='uncertain' WHERE status='executing'")
-        self.db.execute("UPDATE deliveries SET status='uncertain' WHERE status='sending'")
-        self.db.execute("UPDATE memories SET status='uncertain' WHERE status='sending'")
-        self.db.execute("UPDATE runs SET status='interrupted',ended=? WHERE status='running'", (time.time(),))
+            self.life = LifeState(self)
+            # An interrupted non-idempotent call must never be blindly resubmitted.
+            self.db.execute("UPDATE proposals SET status='uncertain' WHERE status='executing'")
+            self.db.execute("UPDATE deliveries SET status='uncertain' WHERE status='sending'")
+            self.db.execute("UPDATE memories SET status='uncertain' WHERE status='sending'")
+            self.db.execute("UPDATE runs SET status='interrupted',ended=? WHERE status='running'", (time.time(),))
 
     @contextmanager
     def transaction(self):
-        self.db.execute("BEGIN IMMEDIATE")
-        try:
-            yield
-        except BaseException:
-            self.db.execute("ROLLBACK")
-            raise
-        else:
-            self.db.execute("COMMIT")
+        with self._lock:
+            self.db.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+            except BaseException:
+                self.db.execute("ROLLBACK")
+                raise
+            else:
+                self.db.execute("COMMIT")
 
     def event(self, scope, kind, details):
-        self.db.execute("INSERT INTO events(time,scope,kind,details) VALUES(?,?,?,?)",
-                        (time.time(), scope, kind, canonical(details)))
+        with self._lock:
+            self.db.execute("INSERT INTO events(time,scope,kind,details) VALUES(?,?,?,?)",
+                            (time.time(), scope, kind, canonical(details)))
 
     def get_setting(self, key, default=None):
-        row = self.db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-        return json.loads(row[0]) if row else default
+        with self._lock:
+            row = self.db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            return json.loads(row[0]) if row else default
 
     def setting(self, key, value):
-        self.db.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (key, canonical(value)))
+        with self._lock:
+            self.db.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (key, canonical(value)))
 
     def propose(self, scope, actor, action, args, ttl=3600, request_key=None):
         if action not in WRITES:
@@ -165,26 +203,67 @@ class Store:
             if not row:
                 self.db.execute("INSERT INTO decisions VALUES(?,?,?,?)", (scope, actor, event_id, ""))
                 return None
-            if event_time is not None and float(event_time) + 1 < row["created"]:
+            event_at = _event_timestamp(event_time)
+            if event_at is not None and event_at + STALE_DECISION_SECONDS < row["created"]:
                 self.db.execute("INSERT INTO decisions VALUES(?,?,?,?)", (scope, actor, event_id, ""))
-                return None
+                self.event(scope, "decision_rejected_stale", {
+                    "proposal_id": row["id"], "event_id": event_id,
+                    "event_time": event_at, "created": row["created"],
+                    "skew_seconds": row["created"] - event_at})
+                return {"id": row["id"], "status": "stale", "event_id": event_id}
             status = "executing" if answer == "approve" else "rejected"
             self.db.execute("INSERT INTO decisions VALUES(?,?,?,?)", (scope, actor, event_id, row["id"]))
             self.db.execute("UPDATE proposals SET status=?,decision_event=? WHERE id=?",
                             (status, event_id, row["id"]))
         self.event(scope, "user_decision", {"proposal_id": row["id"], "decision": answer, "event_id": event_id})
+        try:
+            from data.plugins.astrbot_plugin_affective_core import get_bridge
+            bridge = get_bridge()
+            if bridge is not None:
+                ev_kind = "proposal_approved" if answer == "approve" else "proposal_rejected"
+                bridge.record_life_event(scope, ev_kind, {"proposal_id": row["id"], "event_id": event_id})
+        except Exception:
+            pass
         return {**dict(row), "status": status, "args": json.loads(row["args"])}
 
     def finish_proposal(self, pid, result):
         if result.get("verified") is True:
             status = "verified"
-        elif result.get("executed") is False and result.get("reason") == "switch_disabled":
+        elif result.get("accepted") is True and str(result.get("dmid", "")).isdigit() and self.db.execute(
+                "SELECT 1 FROM proposals WHERE id=? AND action='danmaku'", (pid,)).fetchone():
+            # An acknowledged submission is terminal, but not readback evidence.
+            status = "accepted"
+        elif result.get("executed") is False and result.get("reason") in {
+            "switch_disabled", "interaction_blocked",
+        }:
             # Only the trusted local pre-execution check proves no write happened.
             status = "blocked"
         else:
             status = "uncertain"
         self.db.execute("UPDATE proposals SET status=?,result=? WHERE id=? AND status='executing'",
                         (status, canonical(result), pid))
+
+    def resolve_uncertain(self, scope, actor, pid, decision, review, event_id):
+        """Owner adjudication releases the slot, never edits execution evidence."""
+        if decision not in {"abandoned", "verified"} or not event_id:
+            raise ValueError("invalid resolution")
+        with self.transaction():
+            row = self.db.execute("SELECT * FROM proposals WHERE id=? AND scope=? AND actor=?",
+                                  (pid, scope, actor)).fetchone()
+            if not row or row["status"] != "uncertain":
+                raise ValueError("proposal is no longer uncertain")
+            key = "interaction_review:" + pid
+            pending = self.get_setting(key)
+            if (not pending or pending["expires"] < time.time() or pending["review"] != review
+                    or pending["event_id"] == event_id):
+                raise ValueError("review expired or changed; inspect the ledgers again")
+            # resolved_* is outside one_pending. Keep the original result and
+            # interaction dedupe/counts: abandoning is not proof of non-delivery.
+            self.db.execute("UPDATE proposals SET status=? WHERE id=?", ("resolved_" + decision, pid))
+            self.db.execute("DELETE FROM settings WHERE key=?", (key,))
+            self.event(scope, "uncertain_resolved", {"proposal_id": pid, "actor": actor,
+                "decision": decision, "source": "owner_confirmation", "event_id": event_id,
+                "review": review, "original_verified": False, "resubmitted": False})
 
     def delivery(self, scope, key, kind, fingerprint, meta, suppress_repeat=False):
         """Reserve before network I/O. An unknown send outcome is not retried."""

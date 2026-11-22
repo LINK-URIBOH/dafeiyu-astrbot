@@ -6,7 +6,33 @@
 大肥鱼是 DeepSeek 蓝鲸 logo 的**社区二创形象**（非官方），本项目把「让她住进 QQ 里」
 的全套实践开源出来：一个高完成度的 AstrBot 插件、一套完整人格、以及踩过所有坑的实录。
 
-本分支新增[自主生活 v0.4：研究方法复用](deploy/bili_activity/LIFE_V04.md)：在[来源笔记与自主续写](deploy/bili_activity/LIFE_V03.md)之上，将已完成作品中的研究步骤保存为方法，在其他目标中复用并核对新产物。保留 v0.3.0 于 2026-10-25 上线的修复、真实 smoke 和 215 项测试基线；v0.4 methods 本次仅在本地合并验证，新开关默认关闭。详细结果见[验证记录](deploy/bili_activity/VALIDATION.md)。
+[记忆星海 v0.3](deploy/memory_observatory/README.md)：深蓝星域记忆星图、相机透视与环视、时间线、遗忘模拟和来源检查。已接通运行中的 LivingMemory 2.7.0-beta.2，只读展示真实文档、记忆原子和来源关系，支持手动和每 60 秒自动同步；曲线与线索检索仍为本地模拟，不修改 QQ 中的记忆行为。使用已有运维 SSH 配置，在仓库根目录运行 `python -B -m deploy.memory_observatory.server --port 8767 --livingmemory-ssh`，打开 `http://127.0.0.1:8767`。不加 `--livingmemory-ssh` 则使用虚构演示数据。实测与边界见[接入验收](deploy/memory_observatory/LIVINGMEMORY_V02.md)。
+
+[心境中枢 v0.1](plugin/astrbot_plugin_affective_core/)（M1/M2/M3，代码已合并；云端启用前先停用旧 EmotionAI）：新增自研 affective core 插件——三层情感动力学、回复前 2.5 秒共情评估、牵挂账本与跨天软心门控；TTS 语气/语速、气泡上限、表情抑制、生活决策/联系、记忆显著性和 `felt_tone` 走进程内只读 bridge。小小房间与记忆星海新增当前心境/牵挂展示；affect 数据使用独立 `affective.db` 的 `mode=ro` + `query_only` + authorizer 只读读取。旧 EmotionAI 数据只读迁移，但旧插件必须先在面板停用或移出 `data/plugins`，否则两套情绪 hook 会同时注入。本次发布（v3.1.0）部署云端。
+
+[生活决策 v0.1](deploy/bili_activity/LIFE_DECISION_V01.md)：复用已有调度、目标与预算，根据自己的兴趣、未完成项目和近期尝试选择研究、写作、探索或休息，记录理由并支持主人查询。2026-10-29 已部署并开启，首轮真实决策为 writing；休息不调用模型、不发消息、不写入虚构经历。
+
+[主动联系协调 v0.1](deploy/bili_activity/CONTACT_V01.md)：生活分享与 proactive_chat 共用联系额度、间隔和未回应记录，主人正在聊天时先让出时间。2026-10-30 已部署云端并开启，社区补丁已安装，额度 1/120/5/1；真实 QQ 联动 smoke 尚未执行。
+
+[生活节律 v0.1](deploy/bili_activity/LIFE_RHYTHM_V01.md)（本地、默认关闭）：按上海时间安排晨间续篇、白日探索、睡前整理与休息；根据已结束运行的实际经过时间留白，保留原权限、免打扰与预算。房间展示有日期的节律选择，休息不生成虚构经历。完整阶段与下一项见[自主生活进化清单](docs/进化清单.md)。
+
+[经历记忆 v0.1](deploy/bili_activity/MEMORY_POLICY_V01.md)（本地、默认关闭）：普通经历7天后显示概要、60天后淡出默认回忆，主人明确偏好和未完成任务证据保留；原始来源可按ID取回。不同实际视频支持的自身兴趣经判重形成巩固快照，复用 LivingMemory 现有写入队列，不额外修改其全库衰减。485项离线回归通过（11 skip）；真实写入、召回与长期效果尚未验证，星海曲线仍为本地模拟。
+
+[近况回顾与自我表达 v0.1](deploy/bili_activity/SELF_EXPRESSION_V01.md)（本地、默认关闭）：结合目标、兴趣、作息、项目和已知中断提供表达依据，沿用现有人格与情绪上下文。攒着的话每条主人私聊消息最多自动提供1条，同一念头间隔6小时；主人主动查询仍可查看有效记录。提供给模型不代表已说出或QQ送达，`df_self_reflect` 保持只读，不产生新经历或公开回复。离线验收见链接，真实模型/QQ表达尚未验证。
+
+[跨日自主项目 v0.1](deploy/bili_activity/PROJECTS_V01.md)（本地、默认关闭）：将已有目标和作品组织成有限项目，完成阶段后默认隔24小时回看，留下收获、局限与可选的新问题；下一阶段等原调度器再选择。默认最多两个项目、每个三阶段，保留作品版本、来源与中断恢复。`df_project` 管理，`df_life_status` 查看索引；[房间项目书架](deploy/memory_observatory/PROJECT_SHELF_V01.md)现已增加只读展示。书架阶段Windows/WSL各98项、浏览器27项通过；真实项目联动与长期运行未验证。
+
+[跨日生活联查](deploy/bili_activity/LIFE_JOURNEY_V01.md)：模拟三日期串联研究、作品、重开账本、隔日回看、下一阶段、房间项目册与记忆队列；修复最终回看保存后整轮误报失败，保留停止边界。Windows生活模块558项通过（11 skip），房间/记忆Windows与WSL各98项通过；真实模型主动延续、LivingMemory远端召回和QQ仍待隔离会话验收。
+
+[生活观察报告](deploy/bili_activity/LIFE_OBSERVATION_V01.md)：从显式指定的隔离目录只读汇总一个项目的跨日记录、阶段作品、回看和作品记忆队列，支持Markdown/JSON，不启动活动、不写状态；[模拟示例](deploy/bili_activity/examples/life-observation.demo.md)可预览。新增16项，Windows B站模块574项通过（11 skip），WSL报告16项通过；真实生活与远端召回仍待现场验证。
+
+[本机隔离试运行](deploy/bili_activity/PILOT_V01.md)：经主人授权，已在 WSL Ubuntu 中安装 Docker 并启动独立 AstrBot 4.29.0；本机面板 `http://127.0.0.1:16185`、插件加载、依赖及启停核对通过。[测试模型与LivingMemory](deploy/bili_activity/PILOT_MEMORY_V01.md)已预填并安装，缺少密钥、记忆引擎尚未就绪。`.life-pilot/v01/` 被Git忽略，数据独立、活动全关、QQ未启动；真实生活联动未验证。
+
+[她的小小房间 v0.2](deploy/memory_observatory/ROOM_V02.md) 使用已确认的大肥鱼鲸鱼娘女仆形象：总览待机、平滑走向书桌写字、书架阅读、窗边看景、休息角睡觉，窗景随上海时间变化。房间与星海统一浅蓝奶白风格；记忆按形状/类型分区、关联高亮、遗忘动画连续变化。真实 LivingMemory 与活动账本只读联调通过；角色表演与实际记录分开，不改变生活或记忆策略。新增[房间60秒只读同步](deploy/memory_observatory/ROOM_SYNC_V01.md)，保留项目与阅读位置，隐藏页暂停；本阶段Windows98项、Chrome34项通过，真实源连续同步未验证。
+
+本分支新增[B站评论区互动 v0.5](deploy/bili_activity/INTERACT_V05.md)：在现有提议、主人批准、操作账本和回读链上扩展点赞/取消赞、投币、弹幕、互动配额与风控、回复监听和评论区观察。默认仍逐条审批，新增开关默认关闭；`verified` 与公开可见性分别报告。保留[研究方法复用](deploy/bili_activity/LIFE_V04.md)、[来源笔记与自主续写](deploy/bili_activity/LIFE_V03.md)及既有真实 smoke。v0.5 只完成本地代码和离线测试，未部署、未操作真实账号；开启、低配额建议、回滚和主人小号 smoke 见[互动文档](deploy/bili_activity/INTERACT_V05.md)。
+
+审查修复已按社区维护的 B站 Web API 文档校正点赞/弹幕参数、buvid3 和 WBI 请求；真实端点可用性仍待小号 smoke。新增主人 `/bili互动 清理不确定`，先查看账本再明确确认，释放未决提议但不重发原操作。弹幕 `accepted`（接口受理）、`verified`（回读核实）、`visibility`（公开可见性）分别报告。
 
 ## ✨ 能力清单
 
@@ -18,16 +44,17 @@
 | 🔊 说 | 语音条（含自定义音色） | 百炼音色复刻 + qwen-audio-3.1-tts-flash |
 | 😀 表情 | 真 QQ 表情（326 张脸） | 自研插件把 `[旺柴]` 变成真实表情段 |
 | 🧠 记 | 长期记忆 | livingmemory + bge-m3 嵌入（本地 Ollama / 硅基流动托管） |
+| 🫀 心境 | 三层情感状态、回复前共情评估、牵挂账本；TTS/气泡/表情/生活决策/记忆通道 | affective core（独立 affective.db，只读观测） |
 | 📚 知识 | 功能手册 / 热梗词典（聊天里现查现答） | AstrBot 知识库 + bge-m3 嵌入 |
 | 🏠 群聊 | 进群聊天：@ / 引用 / 喊「大肥鱼」都能唤醒 | NapCat 群消息 + 唤醒词 |
 | 👥 认人 | 分得清谁在说话：群里看昵称、访客标「朋友」 | 插件注入身份标记（对方不可见） |
 | 🔐 隔离 | 每个私聊 / 每个群各一册记忆，互不串账 | livingmemory `session` 作用域 |
 | 📲 主动 | 随机 + 沉默触发，可按需联网找话题；每天 20:30 自己逛 B 站，说去逛必须当轮真调工具 | proactive_chat + AnySearch + cron |
 | 🧭 日程 | 每轮知道自己名下真实存在的定时任务，不再说“我没有日程” | schedule_awareness 实时注入 cron_jobs（只读、按会话隔离） |
-| 📱 手机 | 看截图、读 UI、坐标点击、中文搜索、逛 B 站 | PhoneMCP + ADB + ADBKeyboard |
+| 📱 手机 | 看截图、读 UI、坐标点击、中文搜索、逛 B 站；开机自启先等雷电就绪再起服务与隧道 | PhoneMCP + ADB + ADBKeyboard |
 | 🛠️ 运维 | 一键体检、日志、二维码、受控重启 | dafeiyu-admin MCP（SSH，只读优先） |
 | 🌐 网页 | 只读浏览、搜索、提取网页信息（独立 Chrome） | Browser Use + BrowserMCP（SSE 8010 / SSH 反向隧道） |
-| 🛡️ 防护 | 白名单 / 防注入 / 草稿箱 | 多层设计，见踩坑合集 |
+| 🛡️ 防护 | 白名单 / 防注入 / 文本橡皮擦 | 多层设计，见踩坑合集 |
 
 ## 📦 内容
 
@@ -35,6 +62,7 @@
 plugin/astrbot_plugin_face_convert/   ← 核心插件（AstrBot 插件，直接可装）
 plugin/astrbot_plugin_schedule_awareness/ ← 🧭 把她的定时任务实时注入系统提示词
 plugin/astrbot_plugin_bili_activity/   ← 自主浏览、持续目标、截图、来源笔记与研究方法
+plugin/astrbot_plugin_affective_core/  ← 🫀 心境中枢：情感动力学、共情评估、牵挂账本与表达桥
 persona/大肥鱼-人格.md                 ← 人格提示词（可直接导入 AstrBot）
 persona/课程记忆-模板.md               ← "让她自己悟"的教学记忆模板
 docs/部署指南.md                       ← 从零搭建的路线图
@@ -50,22 +78,28 @@ deploy/ops_mcp/                        ← 🛠️ 云端运维 MCP（health/log
 deploy/browser_use/                    ← 🌐 只读浏览器任务（Browser Use MCP / 反向隧道 / 启停）
 deploy/bili_activity/                  ← B站服务、活动开关、升级及验证说明
 deploy/incident_20261020/              ← 🧹 旧测试记录隔离脚本与复盘
+deploy-macos/                          ← 🍎 macOS 本机 Docker 套件（相对路径 / .env / 宿主 Ollama）
+deploy-kit/                            ← 🧰 本地一键引导与体检包（preflight / bootstrap / 干净组装 payload）
+QUICKSTART.md                          ← ⚡ 十步从零到聊天速通卡片
 CHANGELOG.md                           ← 更新日志
-deploy/                                ← 云服务器部署套件（Docker Compose + 补丁 + 备份 + 运维笔记）
-tests/                                 ← 回归测试（插件文本规则 / 路径解析）
+tests/                                 ← 回归测试（插件文本规则 / 路径解析 / 部署体检）
 assets/avatars/                        ← 头像素材（18 张，v3-20261025 新立绘）
 assets/voice-demo/                     ← 音色样本与复刻链路说明
 ```
 
 ## 🚀 快速开始
 
+> 想少踩坑：先 `python deploy-kit/preflight.py` 体检，再 `bash deploy-kit/bootstrap.sh`
+> 一键装依赖 + 组装 + 自检（Windows 用 `bootstrap.ps1`）。十步全流程见 **[QUICKSTART.md](QUICKSTART.md)**。
+
 1. 按 `docs/部署指南.md` 搭好 AstrBot + NapCat + QQ 小号
 2. 把 `plugin/astrbot_plugin_face_convert/` 放进 AstrBot 的 `data/plugins/`
-   （插件会自动读取你 AstrBot 配置里的 DashScope key，用于语音/视频理解）
+   （语音/视频理解优先读插件 `config.json` 的 `asr_api_key` 或环境变量 `DASHSCOPE_API_KEY`，不再绑定 TTS provider）
 3. 在 AstrBot 里新建人格：把 `persona/大肥鱼-人格.md` 的正文**整段粘贴**（v2 单块提示词，无需拼接；详见导入指南）
 4. 想要语音条 / 记忆 / 自定义音色？照 `docs/导入指南.md` 继续
 5. 重启，开聊 🎉
 6. 想 7×24 挂云端？看 `deploy/README.md`（Docker 一键编排，已实弹演练）
+7. 在 Mac 上想用 Docker 跑本机版？`cd deploy-macos && ./start.sh`（见 [deploy-macos/README.md](deploy-macos/README.md)）
 
 ## 🔌 插件做了什么
 
@@ -73,16 +107,18 @@ assets/voice-demo/                     ← 音色样本与复刻链路说明
 
 **出站（她说什么）**
 - `[旺柴]` `[吃瓜]` 等中括号表情名 → **真正的 QQ 表情段**（QQ 不会渲染机器人发的纯文本表情码）
-- 草稿箱：双层括号 `（（ ））` 里的内容会被撕掉（给她一个"自己咽回去"的出口）
-- 三道轻量橡皮擦：嘴硬小尾巴 / meta 口癖句 / 表情冷却（可逐道关闭，见源码顶部）
+- 气泡合并：表情夹在句子中间时不再把一句话拆成三条消息；首条立即发送，后续才留间隔
+- 整段语音：显示照常分泡，语音按完整语义合成一次，避免每个气泡单独合成、语调反复重置
+- 两道轻量橡皮擦：嘴硬回声 / meta 口癖句（代码、链接、引用和真实的不确定性会保留）
 - 中文标点归一：顿号后接「也 / 就 / 但 / 所以 / 或者」这类分句连接词时改成逗号，「」统一成 “”
+- 消息数组壳：模型偶尔把回复写成 `['…', '…']` 或消息对象数组时，发送前还原成正常句子，不再冒出方括号和引号
 
 **入站（她看到什么）**
 - 纯表情消息的文本是空的，会被上游当"空消息"跳过 → 翻译成 `[旺柴]` 文本
 - 图片 / 表情包 → 补上"[对方发来一张图片]"，交给 AstrBot 的图片转述
 - 语音 → NapCat 转 mp3 → qwen3-asr-flash 听写 → 文本进上下文
 - 视频 → 本地下载 → ffmpeg 抽帧 + 抽音轨 → qwen3-vl 按时间分批看图 + qwen3-asr 分段听声；超时保留已有结果
-- 身份标记 → 群聊消息自动带上 `[昵称(QQ号)]`（管理员标「主人」）、访客私聊标「主人的朋友」——
+- 身份标记 → 群聊消息自动带上 `[昵称(QQ号)]`、访客私聊标「主人的朋友」、管理员（群聊/私聊）标「主人」——
   让她分得清谁在说话；标记只进她的上下文，**对方看不到**；群里只喊名字没内容时，自动补
   「（喊了你一声）」的回应由头
 

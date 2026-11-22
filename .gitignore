@@ -4,3 +4,9 @@ __pycache__/
 .venv/
 *.bak
 .serena/
+.memory-observatory/
+.life-pilot/
+.env
+payload/
+deploy-macos/data/
+deploy-macos/napcat/

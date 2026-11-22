@@ -26,7 +26,23 @@ def _stub(name, **attrs):
 
 class _Star:
     def __init__(self, *a, **k):
-        pass
+        self.context = a[0] if a else None
+
+
+class _Plain:
+    def __init__(self, text: str = ""):
+        self.text = text
+
+
+class _Face:
+    def __init__(self, id: int = 0):
+        self.id = id
+
+
+class _Record:
+    def __init__(self, file: str = "", text: str = ""):
+        self.file = file
+        self.text = text
 
 
 def _register(*a, **k):
@@ -50,7 +66,7 @@ class _Filter:  # filter.xxx(...) 全都变成空装饰器
 
 
 logging.basicConfig(level=logging.CRITICAL)
-_stub(
+_aiohttp_stub = _stub(
     "aiohttp",
     ClientSession=object,
     ClientTimeout=lambda *a, **k: None,
@@ -59,16 +75,16 @@ _stub(
 _stub("astrbot", api=types.ModuleType("astrbot.api"))
 _stub("astrbot.api", logger=logging.getLogger("t"))
 _stub("astrbot.api.event", AstrMessageEvent=object, filter=_Filter())
-_stub("astrbot.api.star", Context=object, Star=_Star, register=_register)
+_stub("astrbot.api.star", Context=object, Star=_Star, register=_register, StarTools=types.SimpleNamespace(get_data_dir=lambda *a, **k: "/tmp"))
 _stub("astrbot.core")
 _stub("astrbot.core.message")
 _stub(
     "astrbot.core.message.components",
     At=object,
-    Face=object,
+    Face=_Face,
     Image=object,
-    Plain=object,
-    Record=object,
+    Plain=_Plain,
+    Record=_Record,
     Reply=object,
     Video=object,
 )
@@ -78,6 +94,10 @@ _stub("astrbot.core.star.session_llm_manager", SessionServiceManager=object)
 spec = importlib.util.spec_from_file_location("face_plugin", MAIN)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
+# 插件模块已绑定所需的桩；不要把这个空壳 aiohttp 留给后续测试，
+# 否则 test_video_processing 的 `from aiohttp import web` 会在全量发现时失败。
+if sys.modules.get("aiohttp") is _aiohttp_stub:
+    del sys.modules["aiohttp"]
 
 failures = []
 
@@ -106,18 +126,19 @@ for s in (
 ):
     check("keep: " + s, scrub(s) == s, repr(scrub(s)))
 
-# 2) 回声型小尾巴：应被擦掉
+# 2) 只有“隐约…”回声腔该被擦掉；真实的看不清/没听清必须保留
 for s, want in (
-    ("看不太清诶", ""),
-    ("模模糊糊的", ""),
+    ("看不太清诶", "看不太清诶"),
+    ("模模糊糊的", "模模糊糊的"),
+    ("我看不清这个字", "我看不清这个字"),
     ("隐约飘进来一句：你好", "你好"),
 ):
     got = scrub(s)
-    check("strip: " + s, got == want, repr(got))
+    check("hedge: " + s, got == want, repr(got))
 
-# 3) 不跨逗号吃下一句
+# 3) 诚实说明不跨逗号误删
 got = scrub("昨天的事模模糊糊的，今天想起来了")
-check("cross-clause", "今天想起来了" in got and "模模糊糊" not in got, repr(got))
+check("cross-clause", "模模糊糊" in got and "今天想起来了" in got, repr(got))
 
 # 4) file:// 路径三种形态
 P = mod.file_uri_to_path
@@ -148,6 +169,139 @@ for src, want in (
 ):
     got = NORM(src)
     check("punct: " + src, got == want, repr(got))
+
+# 6) [NO_REPLY] 只在整条回复就是暗号时生效
+NO_REPLY = mod.FaceConvertPlugin.NO_REPLY_RE
+for s, want in (
+    ("[NO_REPLY]", True),
+    ("【NO_REPLY】", True),
+    (" [no reply] ", True),
+    ("[NO_REPLY]\n[NO_REPLY]", True),
+    ("这个 [NO_REPLY] 是静默暗号", False),
+    ("用 [NO_REPLY] 表示不想说话", False),
+):
+    got = bool(NO_REPLY.fullmatch(s.strip()))
+    check("no-reply: " + s, got == want, repr(got))
+
+# 7) 双括号表达式不再被当成草稿撕掉
+import asyncio
+
+
+class _Event:
+    def get_group_id(self):
+        return ""
+
+    def get_extra(self, _key):
+        return None
+
+
+class _Resp:
+    def __init__(self, text):
+        self.completion_text = text
+
+
+plugin = mod.FaceConvertPlugin(None)
+for src in (
+    "((a+b)) 是合法表达式",
+    "结果是 ((a+b))*c。",
+    "`((a+b))`",
+    "```python\nprint(((a+b)))\n```",
+):
+    resp = _Resp(src)
+    asyncio.run(plugin.scrub_drafts(_Event(), resp))
+    check("keep-double-paren: " + src, resp.completion_text == src, repr(resp.completion_text))
+
+# 8) meta 清理先保护代码/链接/引用，不能整句误删
+for src in (
+    "看 `PROTOCOL_ENFORCEMENT` 这个标记。",
+    "文档在 https://example.com/PROTOCOL_ENFORCEMENT 。",
+    "她说“PROTOCOL_ENFORCEMENT 是内部标记”。",
+):
+    resp = _Resp(src)
+    asyncio.run(plugin.scrub_drafts(_Event(), resp))
+    check("protect-meta-content: " + src, resp.completion_text == src, repr(resp.completion_text))
+
+# 9) 消息数组壳：模型把回复写成 ['第一句。', '第二句。']
+UNWRAP = mod.FaceConvertPlugin._unwrap_message_shell
+for src, want in (
+    (
+        "['嗯？就这么一个字呀。行吧，那我就当你已经放下了，躺着不动了。', '晚安，别眯着眼睛又玩手机。']",
+        "嗯？就这么一个字呀。行吧，那我就当你已经放下了，躺着不动了。\n晚安，别眯着眼睛又玩手机。",
+    ),
+    ('["第一句。", "第二句。"]', "第一句。\n第二句。"),
+    (
+        '[{"type": "text", "text": "第一句。"}, {"type": "text", "text": "第二句。"}]',
+        "第一句。\n第二句。",
+    ),
+    ("['只有一句。']", "只有一句。"),
+    ("结果是 ['苹果', '香蕉'] 这样", "结果是 ['苹果', '香蕉'] 这样"),
+    ("```python\n['a', 'b']\n```", "```python\n['a', 'b']\n```"),
+    ("['苹果', '香蕉']", "['苹果', '香蕉']"),
+    ("普通回复，没有数组。", "普通回复，没有数组。"),
+):
+    got = UNWRAP(src)
+    check("unwrap: " + src, got == want, repr(got))
+
+# 10) scrub_drafts 走完清洗后不应再把数组壳发给分段器
+resp = _Resp("['嗯？就这么一个字呀。', '晚安，别眯着眼睛又玩手机。']")
+asyncio.run(plugin.scrub_drafts(_Event(), resp))
+want = "嗯？就这么一个字呀。\n晚安，别眯着眼睛又玩手机。"
+check("scrub-drafts-unwrap", resp.completion_text == want, repr(resp.completion_text))
+
+# 11) 身份标记四象限（issue #18：主人私聊也必须带平台身份映射）
+class _InEvent:
+    def __init__(self, sid, name, group="", private=False, text="在吗"):
+        self._sid, self._name, self._group, self._private = sid, name, group, private
+        self.message_str = text
+        self.is_wake = True
+        self._extra = {}
+
+    def get_sender_id(self):
+        return self._sid
+
+    def get_sender_name(self):
+        return self._name
+
+    def get_group_id(self):
+        return self._group
+
+    def is_private_chat(self):
+        return self._private
+
+    def get_messages(self):
+        return []
+
+    def get_self_id(self):
+        return "999"
+
+    def get_extra(self, key):
+        return self._extra.get(key)
+
+    def set_extra(self, key, value):
+        self._extra[key] = value
+
+
+plugin.admins = ["123456"]
+for label, ev, want in (
+    ("group-admin", _InEvent("123456", "主号", group="g1"), "[主人(123456)] 在吗"),
+    ("group-member", _InEvent("222", "小明", group="g1"), "[小明(222)] 在吗"),
+    ("private-admin", _InEvent("123456", "主号", private=True), "[主人(123456)] 在吗"),
+    ("private-guest", _InEvent("333", "访客", private=True), "[主人的朋友 访客(333)] 在吗"),
+    ("other-channel", _InEvent("123456", "主号"), "在吗"),
+):
+    asyncio.run(plugin.inbound_face_to_text(ev))
+    check("identity-tag: " + label, ev.message_str == want, repr(ev.message_str))
+
+# 已打过标签的不重复打
+ev = _InEvent("123456", "主号", private=True)
+asyncio.run(plugin.inbound_face_to_text(ev))
+asyncio.run(plugin.inbound_face_to_text(ev))
+check("identity-tag: no-double", ev.message_str == "[主人(123456)] 在吗", repr(ev.message_str))
+
+# 私聊空消息不补「喊了你一声」（那是群聊专用）
+ev = _InEvent("123456", "主号", private=True, text="")
+asyncio.run(plugin.inbound_face_to_text(ev))
+check("identity-tag: private-empty", ev.message_str == "", repr(ev.message_str))
 
 print()
 if failures:

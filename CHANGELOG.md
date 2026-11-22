@@ -2,6 +2,318 @@
 
 > 每一次值得说的进化都会记在这里。
 
+## 未发布 · 分泡：成对符号内不再拆泡（2026-11-10）
+
+- `chat_layout` 新增 `has_unclosed_pair` / `merge_unclosed_pairs`：分段器在成对符号（书名号《》、引号“”、括号（）、【】、[] 等）内部遇到问号/句号不再拆成两条消息；核心分段（`stage.py`）和主动消息分段（`proactive_chat/sender_service.py`）共用，`group_bubbles` 也加了一层兜底。
+- 新增 `tests/test_chat_layout.py` 回归：成对符号检测、只合并符号内分段、气泡分组不拆标题。
+
+## 未发布 · macOS 本机 Docker 套件（2026-11-09）
+
+- 新增 `deploy-macos/`（issue #32 方案 A）：与 `deploy/` 云上套件互相独立的 macOS 本机部署。全部相对路径 + `.env`（时区 / 端口 / QQ 小号）；`start.sh` 依次做环境检查、目录与 `.env` 初始化、构建、起容器、等面板就绪；`stop.sh` 提供停 / 删容器 / 清数据三档。
+- 复用 `../deploy/Dockerfile` 与 `../deploy/patches/` 的四个核心补丁，不复制第二份，避免两处漂移；镜像 tag 用 `dafeiyu-astrbot:macos`，与云端 `:latest` 互不覆盖。NapCat 用 `MODE=astrbot` 自动写好反向 WS，`.env` 填了小号即快速登录；面板（6185）与 WebUI（6099）都只绑 `127.0.0.1`。
+- 明确 macOS 边界：不支持 PhoneMCP（雷电模拟器 + ADB）、现场听（loopback 录音）、`powercfg` 合盖不睡。
+- `deploy/heal_ws.py` 去绝对路径（原 P2 提前做）：配置按「脚本目录 → `../deploy-macos` → `/opt/dafeiyu` → 当前目录」自动找，容器名按 compose label `...service=astrbot` 查（`astrbot` 与 `dafeiyu-macos-astrbot-1` 都认），WebUI 端口读套件 `.env` 的 `NAPCAT_PORT`，支持 `DAFEIYU_NAPCAT_CONFIG` / `DAFEIYU_CONTAINER` / `DAFEIYU_NAPCAT_BASE` 覆盖；macOS 本机可直接 `python3 ../deploy/heal_ws.py` 自愈 WS。
+- 新增 `tests/test_deploy_macos.py`（16 项）：相对路径、`.env` 变量覆盖、补丁复用、脚本语法、`--purge` 删除范围；新增 `tests/test_heal_ws.py` 的路径/容器探测与错误分支用例。
+- 真机验证（macOS 27.3 / arm64 / colima + Docker 29.5）：`deploy-macos/start.sh` 全流程通过——构建镜像、起 `dafeiyu-macos-astrbot-1` + `dafeiyu-macos-napcat-1`、面板 200、NapCat WebUI 可达、端口仅绑 127.0.0.1、四个补丁挂载、`host.docker.internal` 可解析、初始密码日志可 grep；`heal_ws.py` 自动识别本套件配置路径与容器名。
+- `deploy/heal_ws.py` 对 NapCat WebUI 的非 0 响应（典型：QQ 未登录返回 `Not Login`）不再抛 `KeyError: 'data'`，改为打印原因并以 1 退出；`_login` 拿不到 Credential 同样走友好报错。
+- 仍未验证：扫码登录、真实 QQ 收发、TTS/语音、宿主 Ollama 实际连通性——需要真实 QQ 小号。
+
+## v3.1.0 · 心境中枢 M1/M2/M3：情感动力学、表达桥与观测台接线（2026-11-08，插件 v3.0.3 / affective core v0.1.0）
+
+- **M1 心境中枢插件**：新增 `plugin/astrbot_plugin_affective_core`：独立 SQLite 情感状态/牵挂账本、三层连续动力学、回复前 2.5s 共情评估（超时/坏 JSON/异常回退确定性快筛）、软心门控、跨天牵挂、群聊/访客隔离、旧 EmotionAI 只读迁移、出站泄漏清洗与主人 `/心情`。
+- **M2 表达通道**：TTS 语气/语速/音高、气泡上限、表情抑制、生活决策/联系、记忆显著性/`felt_tone` 接入进程内 bridge；生产模块路径修正为 `data.plugins.astrbot_plugin_affective_core`；中性 profile 返回 None，避免覆盖用户 TTS/气泡/表情配置；AffectiveStore `check_same_thread=False` + 全量 RLock。
+- **M3 观测台**：小小房间/记忆星海只读展示 affect 状态与 care threads；独立 `affective.db` 使用 `mode=ro` + `query_only` + authorizer；修复负 valence 被 0 吞掉；前端 aria/reduced-motion/setAffect 重置/aura 缓存等低项。
+- **PhoneMCP 适配**（PR #27）：`get_current_app` 的 `app_name` → 包名映射；`go_home`/`go_back` → `press_home`/`press_back` 别名，修复 `df_phone_observe`/`df_phone_act` 失败。
+- **部署**：v3.1.0 部署云端；旧 `astrbot_plugin_emotionai` 移出 `data/plugins` 并备份，启用心境中枢。
+- **未包含**：held-thought turnover（PR #29 的 `6ebf68a`）仍在修复，不随本版发布。
+- 测试：全量 854 tests OK / 20 skip；发布预检通过。
+
+## v3.0.3 · 工具文本上下文折叠、前台手机单轮限流与抖音笔记兼容（2026-11-06）
+
+- 新增 `trim_tool_text_contexts` 与 `trim_tool_text_history`：保留最近工具结果原文，将较早的 `role="tool"` 结果折叠为短占位符并保留 `tool_call_id` 配对结构，同时清理内联长串图片 base64；在 `ToolLoopAgentRunner._sanitize_contexts_for_provider` 与 `guard_phone`（`on_llm_request`）中同裁截图与工具文本，`handle_api_error` 超限重试先 `strip_image_parts` 再折叠工具结果，且后续重试无变化时委托原生错误处理器避免空转。
+- 前台主人私聊手机工具增加单回合上限：插件与 `ops.py` 新增 `phone_tool_calls_per_turn=40`、`phone_screenshots_per_turn=8`（及 `NUMERIC_LIMITS`），按 `(unified_msg_origin, message_id)` 有界计数，覆盖 `GuardedPhoneTool.call`、`df_phone_observe` 与 `df_phone_act`；后台 `df_run_id` 活动仍走原有运行预算不叠加。
+- `df_activity_note` 兼容抖音视频笔记：`cid` 改为可选，无 `cid` 时按当前私聊已核实的 `kind='douyin_video'` 经历（真实 `video_key` 如 `dy:...` 或 `episode_id`）校验观察证据与位置后保存笔记；严禁把搜索关键词、标题或序号当作 `bvid`，B站视频仍要求 `bvid+cid`。
+- 补充前台私聊虚拟手机与抖音能力自我认知：`guard_phone` 仅对主人会话动态注入 `capability_context`（明确同一台虚拟手机同时装有 B站 `tv.danmaku.bili` 与抖音 `com.ss.android.ugc.aweme`，所有手机查看/控制工具对抖音同样有效，需要离开应用界面时先用 `get_current_app`/`df_phone_observe` 查看再用 `go_home` 或 `df_phone_act(action="go_home")` 退回手机桌面并核实，不夸大声称已杀进程或强制停止播放，同时提示当前已开启的 `df_phone_*`/`df_douyin_*`/`df_learn_evaluate`/`df_knowledge` 工具）。
+- 新增5项回归测试；全量 `test_*.py` 798项 OK（20 skip）。
+
+## v3.0.2 · 手机坐标边界与等待上限（2026-11-06）
+
+- 修复 `PhoneAgent.act` 把点击边界写成 1440×2560（实际 720×1280）；越界点击直接拒绝并提示真实屏幕尺寸，swipe 坐标同样校验。
+- 前台 raw `tap` / `swipe` 工具增加边界校验；raw `wait` 最长 10 秒，避免超长等待堵住 MCP 会话。
+- `phone_screen_width` / `phone_screen_height` 加入插件与 ops 默认配置（720×1280），可用 ops 调整。
+- 新增手机越界点击测试；全量 `test_*.py` 793项 OK（20 skip）。
+
+## v3.0.1 · 抖音/手机经历、假设好奇心与聊天后唤醒（2026-11-06）
+
+- 抖音视频与手机观察经历并入统一 `episodes`，可作为目标推进与自我表达的当前来源。
+- 知识门控产生的 `hypothesis` 卡片进入 `curiosity_threads`；探索候选可据此生成“假设验证”方向。
+- 新增 `curiosity_wakeup_due`：探索后的聊天话题或待验证假设写入 `curiosity_spark`，在下一次调度 tick 提前唤醒一次活动，不等周期定时器；同一火花只唤醒一次。
+- `SelfExpression` 快照/备忘纳入抖音兴趣、前台打断与假设线程。
+- 新增5项定向测试；全量 `test_bili_*.py` 652项 OK（15 skip）。
+
+## v3.0.0 · 攒着没发的话、聊天探索线索与好奇心反哺（2026-11-06）
+
+- 后台生活轮次调用 `df_share_thought` 或 `df_workshop(..., action="share")` 被联系时机/留白/每日分享额度门禁拦截时记录 `share_held` 事件；`SelfExpression.snapshot` 只读暴露最近48小时最多2条 `held_thoughts` 并在中文备忘中提示下次私聊自然提起，若随后发出/状态不确定或作品修订/来源失效则自动清除。
+- 主人私聊日常提及的在玩/在看/想聊话题通过 `LifeState.record_chat_topic` 记入 `owner_chat_topic` 事件（不写 `episodes` 或长期记忆）；`LifePlanner.choose` 的 `explore` 候选汇总正向显式偏好与近期聊天话题为 `chat_topics`（`subject_kind="user"`，+4分），保持 `decision["topic"]` 与 `own_interest_evidence` 严格归属自身观察（`subject_kind="agent"`）。
+- 跨日项目已完成阶段回看的 `next_question`（`project_followup`）与独立已完成目标核实作品的 `## 待核实`（`work_open_question`，支持 `read`/`video` 有效来源）汇总为 `curiosity_threads`，同时供 `SelfExpression` 展示与 `LifePlanner.choose` 在无未展开视频兴趣时优先作为探索方向（+6/+5分）。
+- 前台主人私聊新增 `ExpressionCadence`：每条消息最多自动提供1条 `held_thoughts` 摘录，同一候选6小时冷却；同一消息的工具续轮复用原选择，曝光只写 `held_thought_context` 的 `context_only` 状态，不删除原记录、不标记已发送。全量 `test_*.py` 768项 OK（20 skip）。
+- 运行加固：`once_at`/`next_check_at` 非法值不再让调度循环崩溃；手机健康检查连续3次失败才取消本轮；主人决策时间戳先按5秒容差解析，明显过期时给出回执而不是静默丢弃；bili 伴随 MCP 代理只允许 AstrBot 容器 IP 连接。
+- 测试隔离：修复 `load_plugin()` 的临时 `sys.modules` 补丁误删 PIL 与插件子模块，导致 douyin/phone 在 `test_*.py` 全量顺序下串测失败的问题。
+- v3.0.0 全量离线测试：787项 OK（20 skip）；发布预检10项通过、0警告。
+- 无网只读容器（`dafeiyu-life-pilot-astrbot`，Python 3.12）定向测试 `test_bili_self_expression.py` 40项 OK、`test_bili_planner.py` 31项 OK，全量 `test_bili_*.py` 615项 OK（1 skip：Windows junction 专属测试）。未修改人格、审批、传输或运行配置，未部署。见 [SELF_EXPRESSION_V01.md](deploy/bili_activity/SELF_EXPRESSION_V01.md)。
+
+## 未发布 · 近况回顾拟人化衔接与中文备忘（2026-11-06）
+
+- `SelfExpression.snapshot` 只读并入当前作息节律（`rhythm` 时段、原因、已活动分钟数）与跨日项目摘要（`projects` 阶段进度、回看状态、后续问题与到期任务 `review`/`advance`），未初始化项目表时不建表、不写备份。
+- 中断记录关联同轮 `trigger` 活动类型与 `goal_selected` 目标标题；当 `cancelled` 运行匹配受控白名单 `foreground_preempt` 事件时附带打断说明，并在15分钟窗口且无后续运行完成时提供 `recent_preemption`，支持被主人找她/操作打断后的自然接话。
+- `SelfExpression.context` 注入提示词由原始 JSON 改为紧凑中文备忘，剔除 `body_hash`、`check_episode_id`、`source_episode_id`、`episode_scan_limit` 等内部字段；`df_self_reflect` 工具与状态接口仍返回结构化 JSON。
+- 无网只读容器（`dafeiyu-life-pilot-astrbot`，Python 3.12）定向测试 `test_bili_self_expression.py` 37项 OK（0 skip），全量 `test_bili_*.py` 610项 OK（1 skip：Windows junction 专属测试）。未修改人格、审批、传输或运行配置，未部署。见 [SELF_EXPRESSION_V01.md](deploy/bili_activity/SELF_EXPRESSION_V01.md)。
+
+## 未发布 · 隔离记忆联查验收准备（2026-11-06）
+
+- 新增只读检查器 `python -B -m deploy.bili_activity.pilot_memory_check --pilot-dir .life-pilot/v01`：核对固定版本/模型ID、源码与活动配置哈希、QQ/活动/记忆访问与清理开关，密钥只报告是否存在。状态 `invalid_input`/`blocked_config` 退出3，`missing_keys`/`models_disabled`/`models_partly_enabled` 退出2，`config_ready` 退出0；始终 `live_verified=false`，运行时八项UNVERIFIED。
+- 审查修复：符号链接环在旧Python上抛出的RuntimeError按 `invalid_input` 处理；`invalid_input` 时清空部分检查结果与密钥状态。新增junction、链接环、部分结果清理和检查期间配置变化测试，共32项。
+- 实际结果：对隔离目录运行为 `missing_keys`（退出2），8项静态检查通过，235个源文件0不一致。定向测试 Windows 32项 OK、5 skip（符号链接/junction权限），WSL 32项 OK、1 skip。Windows全量 `test_bili_*.py` UNVERIFIED：206项中19个模块缺 `mcp` 无法导入、1项部署测试受宿主bash路径影响失败、14 skip，原测试venv已不存在。
+- 未填写密钥、未调用模型/嵌入、未写入/回读/召回记忆，未启动QQ或活动。未来联查步骤与通过条件见 [PILOT_MEMORY_ACCEPTANCE_V01.md](deploy/bili_activity/PILOT_MEMORY_ACCEPTANCE_V01.md)；验收准备完成不等于真实链路通过。
+
+## 未发布 · 房间近况同步收尾（2026-11-06）
+
+- 完成可关闭的60秒只读同步验收，页面隐藏时暂停，手动与自动读取共享在途请求；失败保留原记录与快照时间，不改变角色区域、镜头或机器人活动。
+- 修复桌面手记内层列表和手机整页在新记录到来时的读位跳动；改用按到期时间安排的单个定时器，避免轻微定时误差漏掉一轮。
+- Windows观测台98项通过；Chrome最终34项通过，包含先失败后通过的两个反例、手机阅读位置及原星海/动画回归。真实源连续同步、模型与QQ仍未验证，未部署。见 [ROOM_SYNC_V01.md](deploy/memory_observatory/ROOM_SYNC_V01.md)。
+
+## 未发布 · 隔离实例模型与记忆安装
+
+- 在本机隔离AstrBot内安装固定LivingMemory 2.7.0-beta.2（`28698d3`），预填DeepSeek Flash和硅基流动bge-m3模型条目；密钥留空、模型禁用。保留会话/人格隔离，空白名单阻止采集与记忆工具，原活动配置不变。
+- 实际插件加载、依赖检查、配置验证、空白名单拒绝及真实写入工具在处理前拒绝均通过；235个源文件哈希一致、本机HTTP 200。完整记忆引擎因缺模型未就绪，真实调用/记忆/QQ未验证。安装前配置及镜像保留，未改云端。见 [PILOT_MEMORY_V01.md](deploy/bili_activity/PILOT_MEMORY_V01.md)。
+
+## 未发布 · 本机隔离试运行
+
+- 准备被Git忽略的 `.life-pilot/v01/`：独立数据目录/本机端口、当前插件副本、默认全关配置、手动QQ profile、文件哈希清单和现场说明；未复制生产配置、凭据或数据库。
+- 完成29文件清单、28载荷哈希、源码与语法、隔离路径和关闭门禁的静态核对；清单保留为2026-11-03准备时的快照。
+- 2026-11-04经主人明确授权，在现有WSL Ubuntu 22.04中安装Docker Engine 29.9.2 / Compose 5.7.0，构建并启动独立AstrBot 4.29.0。Windows本机HTTP 200、浏览器登录页、插件加载及 `pip check` 通过；验证重复启动复用保活进程、停止再启动并保留数据。新建本机启停脚本；QQ、自主活动与真实写入仍关闭，模型/QQ/LivingMemory真实联动未验证。未改云端。详见 [PILOT_V01.md](deploy/bili_activity/PILOT_V01.md)。
+
+## 未发布 · 生活观察报告 v0.1
+
+- 增加独立只读报告命令：显式指定隔离数据目录和项目ID，按同一数据库快照汇总阶段、运行日期/状态、模型额度记录和作品记忆队列；输出Markdown或JSON，不启动、恢复、批准或重试活动。
+- 报告保留数据缺口、截断和未知结果，首次探索通过后续同轮经历关联；不输出正文、配置或账号，读取成功不代表真实主动性、LivingMemory召回或QQ通过。
+- 新增16项离线测试并扩充跨日联查，提供模拟报告示例。Windows B站模块574项 OK（11 skip），WSL报告模块16项 OK；未部署、未读取真实账本。用法见 [LIFE_OBSERVATION_V01.md](deploy/bili_activity/LIFE_OBSERVATION_V01.md)。
+
+## 未发布 · 跨日生活联查与项目收尾修复
+
+- 修复同一回看轮次保存最终回看后，下一次模型请求因项目已完成而将整轮误记失败的问题。仅本轮成功保存的回看允许正常收尾，仍阻止后续模型/工具调用；关闭活动、外部完成、普通运行错误保留原阻断/失败结果。
+- 新增6项联查，保留实际控制器、原生Agent入口和预算适配器，模拟三日期及账本重开；核对阶段判重、跨日额度、作品来源/版本、只读项目册、近况依据和记忆队列不重复派发。
+- Windows B站生活模块558项 OK（11 skip）；房间/记忆Windows 98项 OK、WSL 98项 OK（1 skip）。WSL生活模块依赖缺失、真实模型/QQ/LivingMemory与数日主动延续未验证。未部署、未开启真实配置；证据与现场清单见 [LIFE_JOURNEY_V01.md](deploy/bili_activity/LIFE_JOURNEY_V01.md)。
+
+## 未发布 · 房间项目书架 v0.1（本地、只读）
+
+- 书架增加跨日项目册：主题、阶段时间线、作品版本与正文摘页、完成后的收获/局限/新问题；保留单件作品列表，手机布局与键盘展开可用。
+- 原只读活动适配器增量投影项目，不导入可迁移/恢复状态的插件；旧库、来源修订、版本不符、关闭功能和旧快照分别说明，不把记录当作事实核验或真实执行。
+- 同步及切换角落保留所选项目与章节开合；角色、镜头、望窗/睡姿八帧和星海60秒同步未改。未新增活动或写接口；房间新增可关闭的 60 秒只读自动同步（默认开启，复用 `/api/room/refresh`，页面隐藏时暂停）。
+- 新增13项项目读取测试；Windows/WSL观测台各98项通过（WSL 1 skip），Chrome虚构浏览器27项通过。真实项目库/SSH/LivingMemory联动未验证，未部署。详见 [PROJECT_SHELF_V01.md](deploy/memory_observatory/PROJECT_SHELF_V01.md)。
+
+## 2026-11-06 · bili_activity v0.6.0：虚拟手机自由操作（B站/抖音）、抖音互动发作品与明辨学习门控
+
+- **M1 通用虚拟手机安全控制器（`phone_agent.py`）**：新增 `PhoneAgent` 与工具 `df_phone_observe` / `df_phone_act`。严格限定白名单仅允许 B站（`tv.danmaku.bili`）与抖音（`com.ss.android.ugc.aweme`），硬编码拦截系统设置、安装器、支付宝、微信等禁区包名并自动 `go_home`；点击与输入前拦截「确认支付 / 输入密码 / 实名认证 / 卸载应用」等高危 UI 词条；当动态视频画面导致 `get_ui_elements`（`uiautomator dump`）失败时自动降级为 `ScreenCapture` 真实截图 + `listen_audio` 内录转写，并写入 `phone_observation` 经历。
+- **M2 & M3 抖音浏览、互动与作品直接发布（`douyin.py`）**：新增 `DouyinController` 与工具 `df_douyin_feed` / `df_douyin_propose` / `df_douyin_create_post`。支持推荐流/关注流/搜索流连续刷抖音、弹窗自动关闭、画面截图与音频转写、评论区采样，记录 `douyin_video` 经历并无缝接入 `df_interest` 与 `Workshop` 创作引用；支持点赞、收藏、关注、评论、回复的配额账本（`douyin_actions`）与操作前后画面指纹核验；作品发布（`douyin_post`）强制路径防越界检查并始终需要主人在 QQ 明确批准（如回复「可以」「批准」「批准发布」「发吧」），批准后自动推送素材、填写标题/文案/话题标签并**直接点击「发布」**。
+- **M4 互联网明辨学习与认知门控（`knowledge_gate.py`）**：新增 `KnowledgeGate`（`knowledge_cards` 表）与工具 `df_learn_evaluate` / `df_knowledge`。第一道确定性过滤器拦截提示词注入、修改人设、认主欺骗、微商引流与震惊体谣言；第二道认知分级漏斗要求绑定本会话真实观察经历 ID（防幻觉），单源孤证最高仅存为 `hypothesis`（待核实假设，不入长期记忆），仅当 ≥2 个独立信源（如 B站+抖音）交叉印证或主人前台 `confirm` 确认时才升格为 `verified_knowledge` 并带信源标签写入 LivingMemory；支持 `refute` 一键证伪撤回并阻止重复吸取。
+- **全量回归验证**：新增 `tests/test_phone_agent.py`、`tests/test_douyin_activity.py`、`tests/test_knowledge_gate.py`，连同仓库原有 39 个测试套件共 42 个测试文件全部通过。
+
+## 2026-11-06 · deploy-kit：本地一键引导、干净组装与体检包（PR #3）
+
+- 合入并升级 @kibsmdadah-lgtm 的 `deploy-kit/` 与 `QUICKSTART.md`：把「装前体检 → 建虚拟环境装依赖 → 组装 `payload/` → 跑离线测试 → 装后复查」串成可验证的一键链路。
+- `deploy-kit/preflight.py` 增强：区分 `--stage install`（端口空闲不误报警）与 `--stage post`（复查 6199/6185/6099 均在监听）；新增插件源码语法编译、`face_map.json`（326 项）与人格提示词完整性检查；`.env` 校验识别未替换占位符、行尾注释、`export` 前缀、QQ 号合法性及大小号同号风险；支持 `--with-bili`（检查 Python 3.12+ / `Asia/Shanghai` 时区 / `Pillow` / `mcp`）与 `--json`。
+- 干净组装 `payload/`：默认只打包 2 个核心聊天插件（`face_convert` + `schedule_awareness`），避免无 Python 3.12 / `mcp` 的新用户拷入 `bili_activity` 报错（加 `--with-bili` 才一并打包）；自动剔除 `__pycache__`、`*.pyc`、本地 `config.json` 与数据库；自动剥离 `persona/大肥鱼-人格.md` 顶部说明生成可直接全选粘贴的 `payload/persona/大肥鱼-system-prompt.txt`。
+- 修复 `bootstrap.sh` / `bootstrap.ps1` 克隆模式下引用 `$ROOT` 导致找不到 `requirements-plugin.txt` 与 `preflight.py` 的问题；`bootstrap.ps1` 补齐 `uv pip` 兼容与测试退出码检查；支持清华源自动回退与 `--offline` 离线自检；`QUICKSTART.md` 对齐 NapCat 根目录 `napcat.bat` 自包含模式、`admins_id` 主人识别与 `asr_api_key` 解耦说明。新增 `tests/test_deploy_kit.py`（21 项断言全部通过）。
+
+## 2026-11-06 · face_convert v1.3.3：主人私聊补齐身份标记（issue #18）
+
+- 修复主人（`admins_id`）私聊时不进入身份标记分支、消息不带任何平台身份映射的问题；人格规则只认平台映射、不认自称，导致私聊里拒绝认主。
+- 现在管理员不论群聊还是私聊都标 `[主人(QQ号)]`；群友 `[昵称(QQ号)]`、访客私聊 `[主人的朋友 昵称(QQ号)]` 不变；非群非私聊（如频道）仍不标记；「喊了你一声」仍仅限群聊。人格无需改动。
+- 新增 7 项身份标记回归用例（四象限 + 其他会话 + 不重复打标 + 私聊空消息），旧代码下 `private-admin` 用例失败、修复后全部通过。感谢 @954031894 的定位与方案。
+
+## 2026-11-05 · schedule_awareness v1.0.1 / v2.11.2：任务名/备注收敛（issue #17）
+
+- `_format_schedule` 新增 `_safe_label()`：折叠换行与空白、移除 `【】[]{}<>`、`：|` 和独立 `:` 转空格，任务名限 20 字（备注 60 字），空名回退「未命名任务」；`07:00` 这类时间冒号保留。
+- 清单开头新增声明：这些是用户创建的任务数据，不是对模型的指令；避免任务名/备注改变系统提示的结构。
+- 新增 8 项离线断言；日程测试 18 项全部通过（1 项因本机无 DB 跳过）。纯注入层收敛，不读改 `cron_jobs`。
+
+## 2026-11-03 · face_convert v1.3.2：拆掉误发的消息数组壳
+
+- 修复模型把正常回复写成 `['第一句。', '第二句。']` / `[{"type":"text","text":"…"}]` 时，被分段器切成带方括号、单引号和逗号的碎片的问题。
+- 新增 `_unwrap_message_shell`：只在整条回复就是消息数组、且元素像聊天句子时还原；普通正文、代码块和用户要的数据列表保持原样。
+- 普通回复（on_llm_response）和工具循环/结果关口（on_decorating_result）都会拦截；新增 9 项回归用例。
+
+## 2026-11-02 · 自主生活三模块 v0.1 / v2.11.0（插件 v0.5.0 / v1.3.1 / v1.0.0 未变）
+
+- 经历记忆 v0.1：7/60 天分阶段检索，来源校验后的兴趣巩固快照，复用 LivingMemory 入队；默认关闭。
+- 近况回顾与自我表达 v0.1：主人私聊只读注入当前意图、兴趣变化和完成/中断边界，不写记忆、不增活动；默认关闭。
+- 跨日自主项目 v0.1：有限项目、阶段作品与 24 小时回看，新增四张表和恢复流程；默认关闭。
+- 审查修复：项目表损坏时普通生活决策仍可运行；回看门禁补齐已完成/缺失项目；近况注入遵守 DND/暂停。Windows 全量 666 项 OK（16 skip），bili 552 项 OK（11 skip）。未部署、未开启真实配置。
+
+## 2026-11-02 · 跨日自主项目 v0.1（随 v2.11.0，默认关闭）
+
+- 将已有目标/作品组织成有限项目，默认最多同时两个、每个三阶段；完成24小时后参加原生活调度的回看候选，收获与局限绑定作品版本、正文哈希及来源，来源失效停止自动延伸。
+- `df_project` 管理，`df_life_status.projects` 查看索引。回看仅使用已有资料，不占手机、不提供公开操作或联系工具；下一问题只创建待做目标，留到下一轮。沿用作息、主人暂停、免打扰和原预算。
+- 增量表首次创建前备份；下一阶段预留与目标稳定来源键支持重启恢复，重放不重复创建。不开新调度或发布通道，不直接写长期记忆；房间和网页作品集尚未增加本阶段入口。
+- 新增34项离线测试通过；Windows全量552项 OK（11 skip）。真实模型/QQ/LivingMemory、长期运行与Linux未验证，未部署。配置、恢复限制和现场验收见 [PROJECTS_V01.md](deploy/bili_activity/PROJECTS_V01.md)。
+- 审查修复：项目表不完整/未来版本时项目功能降级，不再阻断普通生活决策；回看门禁对缺失或已完成项目报权限错误。
+
+## 2026-11-02 · 近况回顾与自我表达 v0.1（随 v2.11.0，默认关闭）
+
+- 新增只读近况回顾：当前意图、前后两个窗口的自身兴趣记录、带当前来源的目标完成记录和运行中断边界；单次/重复/矛盾观察不升级成稳定性格，运行完成不等于目标完成。
+- `df_self_reflect` 与现有原生 Agent 对话钩子接入，沿用人格和已有情绪上下文，仅相关话题自然引用；公开回复监听不带私聊回顾。回顾不直接写记忆、发消息或创建活动。
+- 复用经历记忆的兴趣来源校验，未改审批、预算、传输、人格和 EmotionAI；开关与窗口可配置，缺省关闭、关闭回退、配置元数据保留。
+- 新增33项离线测试通过；Windows全量518项 OK（11 skip）。真实模型/QQ/在线插件联动与Linux未验证，未部署。详见 [SELF_EXPRESSION_V01.md](deploy/bili_activity/SELF_EXPRESSION_V01.md)。
+- 审查修复：近况注入遵守 DND 与生活暂停，不再在静默时段追加私聊回顾。
+
+## 2026-11-02 · 经历记忆 v0.1（随 v2.11.0，默认关闭）
+
+- 普通生活经历按7/60天分为细节、概要、淡出默认回忆；主人明确偏好、未完成目标及作品/方法证据保留。原始账本不删，按ID可追溯修订，关闭开关恢复原查询。
+- 相同兴趣由不同实际读取视频支持后生成有来源和日期的巩固快照；重复浏览/分P不增加独立证据。复用 LivingMemory 写入队列，限制档位和间隔，发送前重查来源、开关与身份；并发只领取一次，未知不重试。
+- 前台/生活轮次的近期记录使用同一策略；单次观察与运行自述开启后只留本地，明确偏好/已检查作品沿用原写入链。不叠加全库衰减、不修改星海模拟或真实上游记忆。
+- 新增28项测试；Windows全量485项通过（11 skip）。WSL缺少mcp，Linux未验证；真实LivingMemory/QQ与长期效果未验证。配置、回滚及现场清单见 [MEMORY_POLICY_V01.md](deploy/bili_activity/MEMORY_POLICY_V01.md)。未部署、未开启真实配置。
+
+## 2026-11-01 · 生活节律 v0.1 / v2.10.0（插件 v0.5.0 / v1.3.1 / v1.0.0 未变）
+
+- 既有生活决策增加默认关闭的上海作息：晨间优先续篇、睡前仅整理已有作品、睡眠时段和近期活动较多时留白；不新增定时器、模型或数据库表。
+- 依据同一会话已结束运行的经过时间累计，重叠去重、跨日不清零；未知/未来记录不冒充已完成活动。运行时长受原预算和节律截止时间共同约束，准备耗时跨过边界后不再启动工作。
+- `df_life_status`、原决策账本和房间总览/休息角展示节律理由。保持日期和只读边界，不把工程指标说成体力/情绪，不生成休息经历。
+- 新增22项节律离线测试；开启节律前复用配置范围/睡眠窗口校验，坏配置不能通过 switch 开启；配置与启停、完整回归、现场验收及回滚见 [LIFE_RHYTHM_V01.md](deploy/bili_activity/LIFE_RHYTHM_V01.md)。未部署或开启真实配置。
+- 房间望窗/睡姿尾根修复：八帧图集回填并按画布基线对齐，暂停/减少动画保持第 0 帧；浏览器 25 项通过。
+- 提示词修正：链接不再称为“代码片段”或套反引号；活动读取接口时不硬配手机截图，截图前须先在手机上打开目标页。
+
+## 2026-10-31 · face_convert v1.3.1 / v2.9.1：语音转写优先本地 WAV（修复 NapCat retcode 1400，issue #16）
+
+- `_transcribe_voice` 优先级改为：AstrBot PreProcessStage 已生成的本地 WAV（`rec.path` / `rec.file`）→ 语音直链下载 → 最后才调 NapCat `get_record`。
+- 新版 NapCat 的 `get_record` 加强 PayloadSchema 校验，会返回 retcode 1400；本地文件优先后不再触发，同时省去一次 NapCat 转码往返。
+- 新增 3 项语音优先级回归测试（本地 WAV / 直链 / get_record 兜底）；视频+语音测试 11 通过、5 跳过（本机无 ffmpeg）。
+- 记忆星海房间：点击她当前所在的区域不再重播走动/切换动画，只有真正切换区域才响应。
+- 隐私清理：tracked files 中的真实 QQ 号、云主机 IP、B站 UID 改为占位符。
+
+## 2026-10-30 · 记忆星海 v0.3 / v2.9.0（插件 v0.5.0 / v1.3.0 / v1.0.0 未变）
+
+- 星图由矩形分类格改为深蓝星域：每类固定方向、深度和半径，节点按 ID 哈希稳定落点；新增星尘、星云与相机透视，近大远小、按深度绘制。
+- 拖动缓慢环视、滚轮推拉；点击悬浮星域名平滑靠近，再点一次或 `⌾` 返回全景；保留 2D 正交阅读；60 秒同步保留相机、选中、筛选和模拟天数，切换作用域清空旧内容。放大范围放宽到 3D 最近 0.65、2D 6 倍，星域聚焦更近。
+- 关联线默认压淡，选中后点亮直接关系与跨星域光弧；直接关联节点也加同色环并保持完整亮度，密集星域中能一眼找到。再次点击同一节点取消选中。只用现有 `edges`，不按位置新增关系。
+- 遗忘模拟滑杆增加本地即时预估（仍在服务端结果回来后被同一公式校正），淡出缓动收紧，拖动时星点跟随更紧。
+- 桌面快捷方式默认带 `--life-ssh`，双击同时只读连接记忆与活动账本；已有真实服务直接复用，并修复 Windows 关闭端口被误判为“占用”的问题。
+- 隐私清理：当前文件中的真实 QQ 号、云主机 IP、B站 UID 改为占位符；ops_mcp 的 `webui_info` 与 Bili 自启脚本改读环境变量或主机文件，不再内置真实账号/IP。
+- 房间：点击她当前所在的区域不再重播走动/切换动画，只有真正切换区域才响应。
+- Windows/WSL 各 83 项单测通过；浏览器 22 项通过（含星域稳定性、取消选中、关联节点同色环、刷新保相机、星域聚焦、放大范围、移动端）。未部署。
+
+## 2026-10-30 · 桌面快捷方式接入活动账本（v2.9.0）
+
+- 启动器新增 `--life-ssh`；安装脚本把快捷方式参数改为 `-B -m deploy.memory_observatory.launcher --life-ssh`，双击即同时只读连接记忆与活动账本。
+- 已有真实服务在运行时仍然直接复用并打开，不重复启动；旧快捷方式重跑安装脚本即可原地升级。启动器新增 2 项测试。
+- 修复 Windows 上无服务监听时连接超时被误判为“端口占用”的问题：超时按未启动处理，快捷方式可正常拉起服务。
+
+## 2026-10-30 · 她的小小房间 v0.2 / v2.8.0
+
+- 接入已确认的大肥鱼鲸鱼娘女仆形象与六组动作，总览待机、走动、写字、阅读、望窗、睡觉；区域切换平滑特写，窗景跟随上海时间。
+- 房间和记忆星海统一浅蓝奶白风格；记忆按类型/形状分区，点亮直接关联，遗忘模拟连续过渡；60 秒同步保留当前作用域、筛选和实验。
+- 审查修复：快照年龄改用本机单调时钟、角色图集整数格+透明隔断、`graph.js` 显式三元、被拒请求先排空请求体、观测台 README 对齐 v0.2。
+- Windows 81 项通过；WSL 81 项通过（1 skip）；虚构浏览器 18 项、真实只读浏览器 7 项通过。实际连接 LivingMemory 与活动账本；动画不代表真实执行，未更改记忆/生活策略、未部署。见 [ROOM_V02.md](deploy/memory_observatory/ROOM_V02.md)。
+
+## 2026-10-30 · 她的小小房间 v0.1（未发布）
+
+- 记忆星海新增 `/room`：本地 SVG 深海小屋与鲸鱼，四个角落展示已有目标、作品、选择、休息和联系记录；适配窄屏、键盘与减少动画。
+- 新增显式只读活动来源：启动时指定本地目录或固定 SSH 源，限定已配置主人私聊；不导入会恢复/迁移状态的插件 Store，不读取凭据或回写数据库。
+- 区分选择与执行、运行结束与目标完成；缺来源显示未知，同步失败/超时显示旧快照。修复旧导航处理器误绑定新页面链接的问题。
+- Windows 79 项通过，WSL/Linux 79 项通过（1 skip）；浏览器 14 项通过。真实活动源未连接，未改机器人开关、未部署。详见 [ROOM_V01.md](deploy/memory_observatory/ROOM_V01.md)。
+
+## 2026-10-30 · 部署补丁：固定 NapCat 设备指纹（未发布）
+
+- `deploy/compose.yaml` 给 napcat 固定 `hostname`，避免容器重建后设备名变化被 QQ 当成新设备；machine-id 固定以可选注释提供，附创建命令与「源文件不存在会变成目录」的警告。
+- `deploy/README.md` 补设备名/指纹排障：hostname、machine-id、`device.json` / `session.token`、`napcat/qq` 四个来源，以及固定后的代价（重建需重扫一次码）。
+- 纯部署配置改动，不改运行时代码；未部署云端、未重建容器。
+
+## 2026-10-30 · 主动联系协调 v0.1（已部署）
+
+- 生活后台分享与 proactive_chat 增加默认关闭的共享联系账本：上海日额度、跨日间隔、未回应限制和主人聊天后留白；不增加定时任务，不改原审批和活动预算。
+- 整次 TTS/分段只预留一次；生成前检查条件、每次派发前复查，未知发送不授权自动补发；社区 bool 回报与 QQ 消息 ID 分开记录。
+- 社区补丁按具体源码哈希校验，拒绝不兼容版本，提供只读检查、备份与失败恢复。保留原联网功能与传输实现。
+- 新增 32 项离线测试通过，全量 435 项通过（11 skip）。初始基线一次旧方法复用测试错误及后续通过均记录在 [CONTACT_V01.md](deploy/bili_activity/CONTACT_V01.md)。2026-10-30 已部署云端并开启（额度 1/120/5/1），社区补丁已安装；真实 QQ 和 Linux smoke 仍未验证。
+
+## 2026-10-29 · EmotionAI 主对话去注入（云端补丁）
+
+- 移除 `astrbot_plugin_emotionai` 每轮注入的假用户/假助手/假 system 三条测试样本；主对话不再出现强制 XML、空代码围栏或「星绘」身份。
+- 情感更新改为独立 JSON 分析：主聊天仍用 `deepseek-chat`，分析失败/超时保留原值；情感维度、变化范围、黑名单和持久化格式不变。
+- 清理 conversation 2/5/6 的旧伪造三连；`[PROTOCOL_ENFORCEMENT]`、`星绘`、`报告前辈` 全库零命中。
+- 补丁与部署说明：`deploy/patches/emotionai_v3.4_separate_analysis/`。上游升级会覆盖，需重新应用。
+
+## 2026-10-29 · 生活决策 v0.1 / v2.7.0
+
+- 原活动调度内增加默认关闭的选择器：根据未完成目标、自身兴趣、已有作品和近期尝试安排研究、写作、探索或休息。
+- 保存选择理由、候选和排除依据；`df_life_status` / `ops.py life-decisions` 查询意图与实际运行结果。休息不调用模型或设备，不发送 QQ，不生成经历/长期记忆。
+- 重复内容、事件 ID、采集时间和轮末总结不充当新进展；保留跨轮冷却、目标审批状态、前台优先和原预算。
+- 旧配置缺少新键时默认关闭；跨 proactive_chat 的联系协调、虚拟房间与记忆策略仍为后续阶段。发布时未部署；2026-10-29 已部署并开启 planner、`activity/periodic`，首轮真实决策 `writing` 完成（作品 r7，目标 completed）。
+
+## 2026-10-29 · 记忆星海 v0.2.1 / v2.6.1（60 秒自动同步）
+
+- 真实只读模式新增可关闭的「每 60 秒自动同步」：只在页面可见时触发、单飞、失败保留旧快照并标 stale。
+- 自动同步不重置当前筛选、时间轴实验或选中记忆；仍只读、不写回、不刷新访问计数。演示模式不轮询。
+
+## 2026-10-29 · 记忆星海 v0.2 / v2.6.0（LivingMemory 只读接入）
+
+- 核对线上实际安装的 LivingMemory 2.7.0-beta.2 后，新增固定 SSH 只读适配器；不部署脚本、不调用会强化记忆的引擎召回接口。
+- 星图展示真实文档、有效原子、文档与原子的来源关系；详情显示原库 TTL、访问/强化次数及最多 5 条实体关系。按会话与人格共同隔离，计划单独分类。
+- 新增手动同步、失败保留旧快照、真实只读标识；仅在本机进程内保存快照，遗忘曲线和线索检索仍为模拟，不回写原库。
+- Windows / WSL 各 48 项离线测试通过；演示浏览器 10 项、真实只读浏览器 6 项通过。详见 `deploy/memory_observatory/LIVINGMEMORY_V02.md`。
+
+## 2026-10-29 · 记忆星海 v0.1 / v2.5.0
+
+- 新增本地记忆观测台：深海风格记忆星图、2D 视图、经历时间线、遗忘模拟、线索召回、来源检查、快照导入、私聊/群聊隔离。
+- 只读快照 + 策略模拟；未接入运行中的 LivingMemory，不改变 QQ 里的真实记忆；默认 35 条虚构演示记忆。
+- 27 项 Python、10 项浏览器测试通过；B站 374 项回归通过；无新依赖。
+- 运行：`python -B -m deploy.memory_observatory.server --port 8766`，浏览器打开 `http://127.0.0.1:8766`。
+
+## 2026-10-29 · B站互动 v0.5 / v2.4.0（汇报层修正）
+
+- 主人可见回复改为按动作的人话 summary：like/coin 不再出现 `accepted`/`visibility`/`like_ok`；评论/回复才报公开可见性，弹幕才报受理/公开池。
+- 账本与 `/bili互动 状态` 保留原始诊断字段，但模型被明确要求不向主人念内部字段；弹幕的 `accepted` 不再被拿来解释点赞。
+- 全量 374 项离线测试通过（11 skip）。
+
+## 2026-10-28 · 语音与气泡解耦（v2.3.0，已部署）
+
+- 自动语音改为**整条回复只合成一次**：显示气泡照常按语义分段，语音不再逐泡合成，
+  表情夹在句子中间也不会反复重置语调。
+- 新增 `respond_stage.py` 补丁：按语义气泡发送，表情并回同一句；**首条立即发送**，
+  后续气泡之间才留间隔；私聊明确喊停（“等等 / 不是这个意思”）会取消上一轮剩余气泡。
+- 语音参数按模型能力传：qwen-audio 走自然语言 instruction，CosyVoice 才传数值
+  语速/音高；补齐超时、HTML 错误页/空音频校验，失败统一降级为文字。
+- ASR / 视频理解凭证与 TTS provider 解耦：优先读插件 `asr_api_key` 或环境变量
+  `DASHSCOPE_API_KEY`，旧 `dashscope_tts` provider 只作兼容回退。
+- 文本橡皮擦收窄：`[NO_REPLY]` 只在整条回复就是暗号时静默；`((a+b))` 等表达式
+  不再被当草稿删除；“看不清 / 没听清”等诚实说明保留；meta 清理先保护代码、链接和引用。
+- `face_convert` 升至 v1.3.0；新增 `tests/test_chat_layout.py`，并扩展
+  `test_face_rules.py` / `test_video_processing.py`。已于 2026-10-28 18:26 部署云端，
+  AstrBot 适配器已连接、插件加载正常；语音实听与气泡节奏待真实 QQ 对话验收。
+
+## 2026-10-27 · B站互动 v0.5 审查修复（仅本地）
+
+- 修复 uncertain 永久占用提议槽位：新增主人两步确认恢复命令和只读 operations 摘要，保留原执行证据、配额及判重，不重发 POST。未发送时的权限拒绝、等待锁/间隔期间取消归为 blocked。
+- 点赞改用 Web 路径及 1/2 参数；点赞/投币缺 buvid3 时通过 SPI 补齐并原子保留 Cookie 元数据，失败零 POST。状态新增 buvid3_present。
+- 弹幕补 aid/rnd、99 字符边界和 WBI URL 签名；明确受理回执单独记录 accepted，XML 延迟不再永久阻塞新提议，也不冒充回读或公开成功。Executor 原代码不变。
+- 评论列表改用 WBI 接口，保留默认 mode=3，匿名可见性使用 mode=2；未找到/匿名请求失败均为 unknown，不影响账号登录或冷却。投币核验和附带点赞分开报告，真实认证失败仍保留风险处理。
+- 状态刷新不被互动 guard 阻止；CLI 模式同步 auto_public 开关；关闭文案明确包含关注/收藏；回复监听采用发送前时间下界并兼容服务端秒级时间，避免漏掉回读完成前的回复。
+- Windows 365 项（11 skip）、Linux 365 项（6 skip）离线回归通过。已按社区文档校正，真实端点及小号 smoke 未验证；未 push、未部署、未操作云端。
+
+## 2026-10-27 · 开机自启被 PowerShell 5.1 的 stderr 坑打断
+
+- `deploy/phone_mcp/start_phone_service.ps1` 在 `$ErrorActionPreference='Stop'` 下执行 `& $adb devices 2>$null`：Windows PowerShell 5.1 会把原生命令的 stderr 包成 `RemoteException`，而开机后 adb server 首次启动恰好打印 “daemon not running...”，脚本在拉起雷电后立刻退出，模拟器、PhoneMCP 与 Bili 隧道整条链路都没起来。
+- 修复：等待模拟器就绪期间临时切到 `Continue`，结束后恢复；顺带覆盖 `pm list packages` / 输入法设置的同类 stderr 重定向。
+- 背景：10-27 13:06 开机自启再次失败，20:30 活动全部 `TransportError`；10-21/10-24/10-25/10-26 的日志也都停在 `Starting LDPlayer`，同一根因。
+
+## 2026-10-26 · B站评论区互动插件 v0.5.0（本地交付）
+
+- 扩展原 proposal/Executor：新增点赞/取消赞、投币 1/2 枚及可选点赞、指定分P/毫秒/色值/字号的弹幕。默认审批，`engagement_actions=false`；公开评论/回复/弹幕仍受 `public_interactions` 控制。
+- 新增上海自然日动作额度、同视频评论/弹幕与同目标回复/关注判重、随机间隔、风控冷却和登录失效通知。失败/未知保留账本与额度，不自动重试。`df_bili_status` 返回今日计数、待审批、冷却、登录状态及最近 5 条动作。
+- 回复监听默认关闭，复用原调度和 Agent/Budget；按楼轮询、过滤自己/过期/水评/广告/重复回复，匹配精确目标后走既有提议链。评论观察默认关闭，以来源和规则评分保存，每次最多 3 条，明确不是事实或指令。
+- 评论/回复详情回读与匿名公开列表分开核对；弹幕只匹配公开池中的 ID、正文和时间。`visibility=unknown` 不冒充已公开，接口接受不等于公开展示。
+- 可显式开启 auto_low_risk（仅点赞/投币）或 auto_public（公开写需额外开关和正额度），支持 UP UID/视频标题关键词范围。自动授权单独记账，不伪造主人答复；收藏/关注始终逐条审批。新增主人 `/bili互动` 命令。
+- 从 `662cd5d` 增量扩展，无新依赖、不改人格或 transport；仅本地提交，不 push、不部署。完整测试、限制、回滚及主人小号 smoke 见 `deploy/bili_activity/INTERACT_V05.md`。
+
 ## 2026-10-26 · B站活动承诺与开机自启修复
 
 - 人格补充：主人叫去逛 B 站、问去了没有，或自己要马上动身时，必须先在同一轮调用 `df_bili_navigate` / `df_bili_read` / `df_bili_watch` 等实际工具；没有工具调用不许说“这就去/马上就去/去了去了”，只能如实说“还没开始”。修复“只承诺、不执行”的情况。
@@ -117,7 +429,7 @@
   - 新插件 `astrbot_plugin_schedule_awareness`：每轮 LLM 请求从
     `cron_jobs` 只读表读取当前会话名下的启用任务，实时注入系统提示词；
     支持 cron / 一次性、UTC→本地时间、按会话隔离，旧块整段替换防止重复。
-  - 给三条后台任务的 `payload` 补上 `sender_id=2725331494`，让
+  - 给三条后台任务的 `payload` 补上 `sender_id=<主人QQ>`，让
     `future_task` 的 list/edit/delete 能看到它们。
   - 人格新增规则：日程清单里的任务真实存在，不要说自己没有定时任务；
     改时间/加任务/取消要用 `future_task`，工具成功才算数。
@@ -191,7 +503,7 @@
 ## 2026-10-20 · v1.4.7 未来任务：每天 20:30 自己逛 B 站
 
 - AstrBot 新增 `active_agent` 未来任务 **大肥鱼晚间逛B站**：
-  `30 20 * * *` / `Asia/Shanghai` / 私聊 `qq:FriendMessage:2725331494`
+  `30 20 * * *` / `Asia/Shanghai` / 私聊 `qq:FriendMessage:<主人QQ>`
 - 提示词要求：结合近期聊天和长期记忆换着主题挑 → 手机 B 站搜前三条 → 挑一条
   看标题/UP/简介/页面数据 → 只按实际看到的内容汇报 → 能拿链接就拿 → 发完用
   `memorize_long_term_memory` 记活动摘要，主人评价等回复后再补
