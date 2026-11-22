@@ -78,6 +78,19 @@ class GuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(value, 'read-public-content')
         self.assertEqual(calls, 1)
 
+    async def test_real_task_exposes_href_without_losing_default_attributes(self):
+        from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES
+        fake = SimpleNamespace(blocked_reason=None, run=AsyncMock(return_value=SimpleNamespace(final_result=lambda: 'ok')))
+        browser = SimpleNamespace(kill=AsyncMock())
+        with patch.object(server, 'Browser', return_value=browser), \
+                patch.object(server, 'ChatDeepSeekNoThinking'), \
+                patch.object(server, 'ReadOnlyAgent', return_value=fake) as constructor:
+            self.assertEqual(await server._run_task('read public page', 8), 'ok')
+        attributes = constructor.call_args.kwargs.get('include_attributes', [])
+        self.assertIn('href', attributes)
+        self.assertTrue(set(DEFAULT_INCLUDE_ATTRIBUTES).issubset(attributes))
+        self.assertFalse(constructor.call_args.kwargs['use_vision'])
+
 
 if __name__ == '__main__':
     unittest.main()

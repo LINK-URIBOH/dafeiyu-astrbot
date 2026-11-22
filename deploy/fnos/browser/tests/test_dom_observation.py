@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from browser_use import Browser
+from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES
 from access_guard import OBSERVE_ACCESS
 from server import blocked_access
 
@@ -76,6 +77,10 @@ class DomTests(unittest.IsolatedAsyncioTestCase):
                         observed = json.loads(await page.evaluate(OBSERVE_ACCESS))
                         actual = observed['challenge'] or blocked_access(observed['text'])
                         self.assertEqual(actual, expected, observed)
+                        if name == 'public':
+                            state = await browser.get_browser_state_summary(include_screenshot=False, cached=False)
+                            serialized = state.dom_state.llm_representation([*DEFAULT_INCLUDE_ATTRIBUTES, 'href'])
+                            self.assertIn('/video/BV1Test123456', serialized)
                 # Exemption is tied to the observed official host, not arbitrary lookalike HTML.
                 await page.goto(f'http://127.0.0.1:{http.server_port}/')
                 await asyncio.sleep(0.5)

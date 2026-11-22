@@ -19,6 +19,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from browser_use import Agent, Browser, ChatDeepSeek, Tools
+from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from access_guard import OBSERVE_ACCESS
@@ -180,6 +181,9 @@ async def _run_task(task: str, max_steps: int) -> str:
             browser=browser,
             tools=tools,
             use_vision=False,
+            # Native serializer omits href by default; read-only agents cannot
+            # click cards to recover URLs. Retain defaults and expose real links.
+            include_attributes=[*DEFAULT_INCLUDE_ATTRIBUTES, 'href'],
             use_judge=False,
             enable_signal_handler=False,
             max_failures=1,

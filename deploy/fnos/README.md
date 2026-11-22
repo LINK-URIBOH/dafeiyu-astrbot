@@ -103,6 +103,8 @@ git push origin fnos-linux
 
 普通页头登录按钮、B站右上角不阻挡公开视频的登录推荐不需要点击或关闭；继续读取公开内容。真实登录墙、表单、验证码、访问限制或无法可靠检查的页面仍立即停止，不绕过、不重试。`access_guard.py` 通过固定只读 DOM 观察区分提示，模型无权调用脚本或关闭弹窗；白名单、八步/三分钟预算和只读动作集合保持不变。
 
+浏览器原生 DOM 序列化参数在默认属性之外增加 `href`，让模型读取页面真实视频链接，不靠点击卡片或猜测 BV 号补链接。不新增 MCP 接口或浏览器动作。
+
 更新现有部署时只安装 `browser/server.py`、`browser/access_guard.py` 与构建文件，使用新标签 `dafeiyu-browser:fnos-login-guard-20261122`，保留旧镜像及浏览器数据。正常构建：`docker compose build browser`；仅变更源码、必须保留当前依赖时，可从已记录镜像 ID 本地派生并 COPY 这两个文件。将同名镜像标签写入现有 Compose 的 browser 服务，只执行 `docker compose up -d --no-deps browser`（携带该部署已有的覆盖文件），不重启 AstrBot 或 QQ。
 
 已有每日 B站任务通过 `python3 tools/update_bili_policy.py --backup-dir incoming/本次私密备份目录` 精确更新说明。该工具仅 PATCH 指定任务的 note，保留收件人、模型、人格、时区、开关及 20:30 调度；说明不符合已知旧版时拒绝修改，不运行初始化脚本。备份含私聊会话标识，应保持私密。
