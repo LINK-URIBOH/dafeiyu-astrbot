@@ -10,7 +10,7 @@ SnowLuma 2.2.1 增量替换 NapCat 的说明、固定摘要和回退步骤见 [S
 
 - `main` 保留上游代码，供同步 `whyever77/dafeiyu-astrbot/main`。
 - `fnos-linux` 在上游主分支上增加本目录，保存本地适配。
-- 本目录的**运行源码**仍固定在 `662cd5dd096ce0c0cf2f599b51e82efff80da24d`。`main` 同步成功不代表运行源码、AstrBot 或插件已经升级。
+- 本目录的**运行源码**固定在 `64274354c4331591620a925b3df498725df4564f`。已有服务的增量更新、启用边界与代码回退见 [UPSTREAM_UPDATE.md](UPSTREAM_UPDATE.md)；同步分支本身不等于更新服务器。
 - AstrBot 4.29.0、NapCat 4.18.37、browser-use 0.13.11、MCP 2.1.1。社区插件逐个固定提交，见 `versions.lock.json`。
 - `patches.lock.json` 记录补丁校验值与适用基线；`tools/verify_patches.py` 会拒绝未核对的版本或补丁变动。
 

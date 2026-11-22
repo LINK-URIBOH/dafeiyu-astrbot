@@ -19,6 +19,11 @@ services:
       - ./napcat/qq:/app/.config/QQ:ro
       - ./patches/dashscope_tts.py:/AstrBot/astrbot/core/provider/sources/dashscope_tts.py:ro
       - ./patches/stage.py:/AstrBot/astrbot/core/pipeline/result_decorate/stage.py:ro
+      - ./patches/chat_layout.py:/AstrBot/astrbot/core/pipeline/chat_layout.py:ro
+      - ./patches/respond_stage.py:/AstrBot/astrbot/core/pipeline/respond/stage.py:ro
+      - ./patches/proactive_llm_service.py:/AstrBot/data/plugins/astrbot_plugin_proactive_chat/core/services/llm_service.py:ro
+      - ./patches/proactive_sender_service.py:/AstrBot/data/plugins/astrbot_plugin_proactive_chat/core/services/sender_service.py:ro
+      - ./patches/proactive_contact_bridge.py:/AstrBot/data/plugins/astrbot_plugin_proactive_chat/core/services/contact_bridge.py:ro
       - ./patches/sitecustomize.py:/opt/dafeiyu-overrides/sitecustomize.py:ro
       - ./patches/dafeiyu_group_context.py:/opt/dafeiyu-overrides/dafeiyu_group_context.py:ro
       - ./patches/group_chat_context.py:/AstrBot/astrbot/builtin_stars/astrbot/group_chat_context.py:ro

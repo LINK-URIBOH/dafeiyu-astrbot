@@ -1,7 +1,7 @@
 {
   "project": {
     "repository": "whyever77/dafeiyu-astrbot",
-    "commit": "662cd5dd096ce0c0cf2f599b51e82efff80da24d"
+    "commit": "64274354c4331591620a925b3df498725df4564f"
   },
   "plugins": [
     {
@@ -57,6 +57,17 @@
       "version": "1",
       "date": "2026-10-27",
       "group_selection": "DAFEIYU_GROUP_ID in secrets/runtime.env"
+    },
+    "upstream_update": {
+      "date": "2026-11-22",
+      "active_components": [
+        "face_convert",
+        "schedule_awareness",
+        "core_chat_layout",
+        "dashscope_tts",
+        "proactive_chat_patches"
+      ],
+      "optional_modules_enabled": false
     }
   },
   "runtime": {

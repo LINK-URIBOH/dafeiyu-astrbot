@@ -16,7 +16,7 @@ async def main():
     results = {}
     face = FaceConvertPlugin.__new__(FaceConvertPlugin)
     face.cfg = DEFAULT_CONFIG.copy()
-    face.dashscope_key = next(p['api_key'] for p in config['provider'] if p['id'] == 'dashscope_tts')
+    face.asr_model = DEFAULT_CONFIG['asr_model']; face.vl_model = DEFAULT_CONFIG['vl_model']; face.asr_key = next(p['api_key'] for p in config['provider'] if p['id'] == 'dashscope_tts')
     with tempfile.TemporaryDirectory() as scratch:
         video = str(Path(scratch) / 'synthetic-test.mp4')
         subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-loop', '1',

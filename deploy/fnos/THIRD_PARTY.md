@@ -8,9 +8,9 @@
 | patches/proactive_context_service.py | Pancakes-Labs/astrbot_plugin_proactive_chat，77a1d408ccd003a9d34ad4f51acfb8fc17bc35f5，core/services/context_service.py | 主动聊天复用同一份持久背景，清理重复背景 |
 | patches/dafeiyu_group_context.py | 本次新增 | 单群选择、持久转述、截断预算、重启恢复与 reset 水位 |
 | patches/omnidraw_custom_endpoint_impl.py | diaomin66/astrbot_plugin_omnidraw，91a3555b5103baea759b12261ced52fd18d433bd，providers/custom_endpoint_impl.py | SiliconFlow 普通生图与编辑自拍请求适配；保留文件内来源说明 |
-| patches/dashscope_tts.py、stage.py | whyever77/dafeiyu-astrbot，662cd5dd096ce0c0cf2f599b51e82efff80da24d，deploy/patches | 使用上游提供的对应版本补丁 |
+| patches/dashscope_tts.py、stage.py、respond_stage.py、chat_layout.py、proactive_*.py（不含 proactive_context_service.py） | whyever77/dafeiyu-astrbot，64274354c4331591620a925b3df498725df4564f，deploy/patches | 同步上游；核心 TTS 避免重复显式语音调用 |
 | patches/sitecustomize.py | 本次新增 | SDK 使用配置好的百炼地域接入地址 |
-| patches/face_convert_main.py | whyever77/dafeiyu-astrbot 固定提交 662cd5dd096ce0c0cf2f599b51e82efff80da24d，plugin/astrbot_plugin_face_convert/main.py | SnowLuma 转码 base64 兼容与原消息视频地址刷新 |
+| patches/face_convert_main.py | whyever77/dafeiyu-astrbot 固定提交 64274354c4331591620a925b3df498725df4564f，plugin/astrbot_plugin_face_convert/main.py | SnowLuma 转码 base64 兼容、原消息视频地址刷新、原生显式语音工具 |
 | browser/server.py | 参考上游 deploy/browser_use/browser_mcp_server.py，改为 Linux | 无 Windows 代理；独立 Chromium；只读动作和登录限制；工具名兼容 |
 
 AstrBot 和主动聊天插件的许可证原文随目录保存在 LICENSES/。OmniDraw 固定提交未发现独立 LICENSE 文件，本目录保留其来源标注，不将该第三方文件声明为由本项目重新授权。其他下载依赖保留其自己的许可证，版本见 versions.lock.json。原始文件的校验值与下载地址见 patches.lock.json。完整依赖源码可按固定提交从对应公开仓库获取。

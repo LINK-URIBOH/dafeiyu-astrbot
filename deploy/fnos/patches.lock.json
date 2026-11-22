@@ -1,5 +1,5 @@
 {
-  "tested_project_commit": "662cd5dd096ce0c0cf2f599b51e82efff80da24d",
+  "tested_project_commit": "64274354c4331591620a925b3df498725df4564f",
   "tested_runtime": {
     "astrbot": "4.29.0",
     "napcat": "4.18.37",
@@ -18,13 +18,18 @@
   },
   "files": {
     "patches/dafeiyu_group_context.py": "5ae77ef65bbc3bbc77ad529fcaca241b7da9d638db14ec1be5f1cd0b431470cd",
-    "patches/dashscope_tts.py": "a843ea1fa36960b8e98e81e2dbafd120f57e77489d0a358796a9995bcdf05fa2",
+    "patches/dashscope_tts.py": "6378ae60d0f7f8c0f1711a2e6c5ce7417f322741c3460833cf21679a0a1916f2",
     "patches/group_chat_context.py": "ed3af9f88170a4fa597940690b2b2fe60623e898e0a1a253f8c81475e9445028",
     "patches/omnidraw_custom_endpoint_impl.py": "659995b19edde0e732796f5c065891072726db6be113655dd5839c30c72aa3f1",
     "patches/proactive_context_service.py": "4b8a56bf099f674d0244ce3edba0b38a114ac81d33e476ea50e9a916a30a7308",
     "patches/sitecustomize.py": "8e9e8b2fc43ce02b2803442821add2a818c8b4e67918e39523b9a9d581815e28",
-    "patches/stage.py": "b979b4e27c96f8e0a7ce66ab00558ab5d6acd6a6ba73ae2685ddae3db523750c",
-    "patches/face_convert_main.py": "0453b9de60b6fd6065bcfc18368a1d4e53aaa7e7bf47b8e54a45824170e49591"
+    "patches/stage.py": "b65db3008ad42514ce73b02140ba58efaf00d0e09a5ebc4ebe65649b6be32662",
+    "patches/face_convert_main.py": "4e372968c924b87dc7a5723bbecda029bf55a7041ed7f610e4c0c3efb2728543",
+    "patches/chat_layout.py": "5a922375da4db3e6bfe3ec36548e85d30986f2def00ab1037a9409309d1078ea",
+    "patches/respond_stage.py": "a011e842deab9088e6c55ac6ef9234001fe4a5951a5b8aa16ec375322e0ec47d",
+    "patches/proactive_llm_service.py": "0fcf7c7e632cd06c53a11aa54560a70a7b5989b4619f584881ced4ac7d6fcf89",
+    "patches/proactive_sender_service.py": "b86af7b43846144fe54fff954fe464bb88724f12014c78558ecaf033af568865",
+    "patches/proactive_contact_bridge.py": "b0deba9d92a6283ae91304805bc7133b9e8afc9fb5e527532c0ff93704f1b579"
   },
   "upstream_sources": {
     "group_chat_context.py": {
@@ -40,20 +45,40 @@
       "original_sha256": "78e2249c514abe8c0a78a65d3e4dee3752dc70057444c4761007130456ea1d5a"
     },
     "stage.py": {
-      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/662cd5dd096ce0c0cf2f599b51e82efff80da24d/deploy/patches/stage.py",
-      "original_sha256": "b979b4e27c96f8e0a7ce66ab00558ab5d6acd6a6ba73ae2685ddae3db523750c"
+      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/64274354c4331591620a925b3df498725df4564f/deploy/patches/stage.py",
+      "original_sha256": "f36bd3d75171f66ed6533996dc924dc0c23243867f6086ab4d4add610d95795f"
     },
     "dashscope_tts.py": {
-      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/662cd5dd096ce0c0cf2f599b51e82efff80da24d/deploy/patches/dashscope_tts.py",
-      "original_sha256": "a843ea1fa36960b8e98e81e2dbafd120f57e77489d0a358796a9995bcdf05fa2"
+      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/64274354c4331591620a925b3df498725df4564f/deploy/patches/dashscope_tts.py",
+      "original_sha256": "6378ae60d0f7f8c0f1711a2e6c5ce7417f322741c3460833cf21679a0a1916f2"
     },
     "face_convert_main.py": {
-      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/662cd5dd096ce0c0cf2f599b51e82efff80da24d/plugin/astrbot_plugin_face_convert/main.py",
-      "original_sha256": "bfedefebe2fdfa1c35e264fef308d3e939b83b46193f85905ebf131e48de4d02"
+      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/64274354c4331591620a925b3df498725df4564f/plugin/astrbot_plugin_face_convert/main.py",
+      "original_sha256": "8d12e8dae6efde9f9d7f0039a229d0f3110d443a3c9e3f998f0cbc5454d39606"
+    },
+    "chat_layout.py": {
+      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/64274354c4331591620a925b3df498725df4564f/deploy/patches/chat_layout.py",
+      "original_sha256": "5a922375da4db3e6bfe3ec36548e85d30986f2def00ab1037a9409309d1078ea"
+    },
+    "respond_stage.py": {
+      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/64274354c4331591620a925b3df498725df4564f/deploy/patches/respond_stage.py",
+      "original_sha256": "a011e842deab9088e6c55ac6ef9234001fe4a5951a5b8aa16ec375322e0ec47d"
+    },
+    "proactive_llm_service.py": {
+      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/64274354c4331591620a925b3df498725df4564f/deploy/patches/proactive_chat/llm_service.py",
+      "original_sha256": "0fcf7c7e632cd06c53a11aa54560a70a7b5989b4619f584881ced4ac7d6fcf89"
+    },
+    "proactive_sender_service.py": {
+      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/64274354c4331591620a925b3df498725df4564f/deploy/patches/proactive_chat/sender_service.py",
+      "original_sha256": "b86af7b43846144fe54fff954fe464bb88724f12014c78558ecaf033af568865"
+    },
+    "proactive_contact_bridge.py": {
+      "url": "https://github.com/whyever77/dafeiyu-astrbot/blob/64274354c4331591620a925b3df498725df4564f/deploy/patches/proactive_chat/contact_bridge.py",
+      "original_sha256": "b0deba9d92a6283ae91304805bc7133b9e8afc9fb5e527532c0ff93704f1b579"
     }
   },
   "validation": {
-    "date": "2026-10-27",
+    "date": "2026-11-22",
     "generic_group_context_tests": 11,
     "scope": "Synthetic SQLite messages and subprocess restart; no QQ messages or model requests"
   }

@@ -57,7 +57,7 @@ def load_plugin():
     module = importlib.util.module_from_spec(spec)
     with patch.dict(sys.modules, modules):
         spec.loader.exec_module(module)
-    module.PLUGIN_DIR = str(ROOT / "source/plugin/astrbot_plugin_face_convert")
+    module.PLUGIN_DIR = str(ROOT.parents[1] / "plugin/astrbot_plugin_face_convert")
     return module
 
 
@@ -68,7 +68,7 @@ logging.basicConfig(level=logging.CRITICAL)
 def plugin(**config):
     instance = mod.FaceConvertPlugin(None)
     instance.cfg.update(config)
-    instance.dashscope_key = "test-only"
+    instance.asr_key = "test-only"
     return instance
 
 

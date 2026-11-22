@@ -89,5 +89,20 @@ class GatewayMediaTests(unittest.IsolatedAsyncioTestCase):
         result=await p._resolve_video(e,SimpleNamespace(file='video-id'),'/tmp')
         self.assertEqual(result,'/tmp/video.mp4');bot.get_msg.assert_awaited_once_with(message_id='-12');bot.get_file.assert_not_awaited()
 
+    async def test_upstream_local_wav_priority_preserved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'voice.wav';path.write_bytes(b'RIFFtestWAVE')
+            p=plugin();p._asr_file=AsyncMock(return_value='local')
+            bot=SimpleNamespace(get_record=AsyncMock())
+            result=await p._transcribe_voice(SimpleNamespace(bot=bot),SimpleNamespace(path=str(path),file='original.amr'))
+            self.assertEqual(result,'local');bot.get_record.assert_not_awaited()
+
+    async def test_raw_silk_url_falls_back_to_protocol_conversion(self):
+        p=plugin();p._asr_file=AsyncMock(return_value='converted')
+        bot=SimpleNamespace(get_record=AsyncMock(return_value={'out_format':'mp3','base64':base64.b64encode(b'ID3converted').decode()}))
+        with patch.object(mod,'download_capped',AsyncMock(return_value=b'\x02#!SILK_V3raw')):
+            result=await p._transcribe_voice(SimpleNamespace(bot=bot),SimpleNamespace(file='original.amr',url='https://media.example/raw'))
+        self.assertEqual(result,'converted');bot.get_record.assert_awaited_once();p._asr_file.assert_awaited_once()
+
 
 if __name__=='__main__':unittest.main()

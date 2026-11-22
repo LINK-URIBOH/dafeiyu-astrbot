@@ -44,7 +44,7 @@ async def main():
         results['embedding'] = {'ok': False, 'error': safe_error(error)}
     face = FaceConvertPlugin.__new__(FaceConvertPlugin)
     face.cfg = DEFAULT_CONFIG.copy()
-    face.dashscope_key = providers['dashscope_tts']['api_key']
+    face.asr_model = DEFAULT_CONFIG['asr_model']; face.vl_model = DEFAULT_CONFIG['vl_model']; face.asr_key = providers['dashscope_tts']['api_key']
     try:
         path = '/AstrBot/data/temp/deployment-vision.jpg'
         image = Image.new('RGB', (640, 240), 'white')
