@@ -111,6 +111,8 @@ git push origin fnos-linux
 
 工具现在区分浏览器启动、页面检查、网页读取和模型调用阶段，并报告实际耗时。内部 30 秒启动超时不再冒充整体 180 秒超时；整体上限仍为 180 秒。退出清理最多等待 10 秒，报告实际时间含清理；没有新增自动重试。
 
+同步更新 `tools/backup_snapshot.py`，把 `browser/access_guard.py` 和可执行的 `browser/chromium-blank.sh` 纳入每日备份；还原后无需另行补文件。新备份测试验证这两个文件及脚本执行权限能完整恢复。
+
 已有每日 B站任务通过 `python3 tools/update_bili_policy.py --backup-dir incoming/本次私密备份目录` 精确更新说明。该工具仅 PATCH 指定任务的 note，保留收件人、模型、人格、时区、开关及 20:30 调度；说明不符合已知旧版时拒绝修改，不运行初始化脚本。备份含私聊会话标识，应保持私密。
 
 回退时恢复本次保留的浏览器代码和 Compose 镜像标签，再仅重建 browser；任务说明通过面板 PATCH 恢复 `bili-job-before.json` 的 note。不要用旧数据库覆盖在线聊天或费用记录。浏览器恢复后从 AstrBot 调用 `browser_health`，再进行一次有界匿名浏览，核对真实标题、UP主和完整链接；调度状态 completed 本身不代表推荐成功。

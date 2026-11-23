@@ -14,7 +14,8 @@ def snapshot(destination):
     names = ['astrbot/data', 'napcat/config', 'napcat/qq', 'secrets', 'compose.yaml',
              'Dockerfile', 'patches', 'tools', 'vendor/plugins', 'fetch_plugins.py',
              'meme-resources.lock.json', 'browser/server.py', 'browser/Dockerfile',
-             'browser/browser_allowlist.txt', 'versions.lock.json', 'persona-deployed.md',
+             'browser/browser_allowlist.txt', 'browser/access_guard.py', 'browser/chromium-blank.sh',
+             'versions.lock.json', 'persona-deployed.md',
              'knowledge', '.env', 'compose.lan.yaml', 'patches.lock.json', 'compose.cost-report.yaml', 'Dockerfile.cost-report',
              'cost-report-requirements.txt', 'compose.snowluma.yaml', 'gateway.json', 'snowluma']
     paused = False

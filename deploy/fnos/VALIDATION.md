@@ -33,6 +33,8 @@ docker exec -w /AstrBot dafeiyu-astrbot python -m pytest data/plugins/astrbot_pl
 
 ## 2026-11-23 启动与超时修复验收
 
+`cd tools && python -m unittest test_gateway_backup -v`：2 项通过，使用合成数据验证含 WAL 的数据库及新增浏览器文件还原、脚本执行权限、异常后 unpause；Docker 网关操作均由测试替身拦截。
+
 `HOME=/tmp ANONYMIZED_TELEMETRY=false python -m unittest discover -s browser/tests -v`：16 项通过，包括 23 个 DOM 场景及 5 次冷启动/复用目录启动。测试配置特意预置 Chrome 内部新标签启动页，实际均进入 about:blank；连续重复调用 start 也能正常返回。覆盖内部超时与整体时限区分、真实耗时、调用间阶段隔离及启动失败清理，不调用模型或外网。
 
 同依赖镜像中运行未变动的根目录全量回归：905 项通过，2 项跳过。此前记录的两个预算测试失败没有在本次运行出现；原记录保留为当时结果。本修复没有修改这些测试或对应手机模块。
