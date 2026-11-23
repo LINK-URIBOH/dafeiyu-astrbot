@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -71,6 +74,9 @@ class ReadOnlyAgent(Agent):
     blocked_reason: str | None = None
 
     async def _get_next_action(self, browser_state_summary):
+        progress = getattr(self, 'task_progress', None)
+        if progress:
+            progress.phase = '页面检查'
         try:
             page = await self.browser_session.get_current_page()
             observation = await page.evaluate(OBSERVE_ACCESS)
@@ -87,7 +93,12 @@ class ReadOnlyAgent(Agent):
             self.blocked_reason = '页面存在登录墙、验证码、访问限制或无法确认的登录要求，已停止；不关闭、不绕过、不重试。'
             raise RuntimeError(self.blocked_reason)
         # Model reasoning mentioning an optional popup is not evidence of a wall.
-        return await super()._get_next_action(browser_state_summary)
+        if progress:
+            progress.phase = '模型调用'
+        result = await super()._get_next_action(browser_state_summary)
+        if progress:
+            progress.phase = '网页读取'
+        return result
 
 
 class ChatDeepSeekNoThinking(ChatDeepSeek):
@@ -106,6 +117,11 @@ mcp = MCPServer(
     instructions="只读浏览器助手：在独立 Chrome 中浏览、搜索、提取网页信息。",
 )
 _task_lock = asyncio.Lock()
+
+
+@dataclass
+class TaskProgress:
+    phase: str = '浏览器启动'
 
 def cleanup_stale_profile_locks() -> None:
     # The dedicated container has no browser at server startup. Chromium stores
@@ -153,26 +169,41 @@ async def browser_task(task: str, max_steps: int = MAX_STEPS_DEFAULT) -> str:
     steps = max(1, min(int(max_steps), 8))
 
     async with _task_lock:
+        progress = TaskProgress()
+        started = monotonic()
+        deadline = asyncio.timeout(TASK_TIMEOUT)
         try:
-            return await asyncio.wait_for(
-                _run_task(task.strip(), steps), timeout=TASK_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            return f"任务超时（{TASK_TIMEOUT} 秒），已中止。"
+            async with deadline:
+                return await _run_task(task.strip(), steps, progress)
+        except TimeoutError:
+            elapsed = monotonic() - started
+            if deadline.expired():
+                return (f'整体任务达到 {TASK_TIMEOUT} 秒上限，已中止；'
+                        f'中止阶段：{progress.phase}，实际耗时 {elapsed:.1f} 秒（含清理）。不重试。')
+            return (f'{progress.phase}阶段超时，已停止；实际耗时 {elapsed:.1f} 秒，'
+                    f'整体上限 {TASK_TIMEOUT} 秒，未耗尽整体时限。不重试。')
         except Exception as exc:
-            return f"浏览器任务失败：{type(exc).__name__}。请查看服务日志中的脱敏诊断。"
+            return (f'{progress.phase}阶段失败（{type(exc).__name__}），'
+                    f'实际耗时 {monotonic() - started:.1f} 秒；已停止，不重试。')
 
 
-async def _run_task(task: str, max_steps: int) -> str:
-    browser = Browser(
-        executable_path=CHROME_PATH,
+def create_browser():
+    return Browser(
+        executable_path=str(HERE / 'chromium-blank.sh'),
         headless=HEADLESS,
         user_data_dir=str(PROFILE_DIR),
         enable_default_extensions=False,
         chromium_sandbox=False,
         allowed_domains=_load_allowlist(),
     )
+
+
+async def _run_task(task: str, max_steps: int, progress: TaskProgress | None = None) -> str:
+    progress = progress or TaskProgress()
+    browser = create_browser()
     try:
+        await browser.start()
+        progress.phase = '网页读取'
         tools = Tools()
         tools.registry.registry.actions = {name: action for name, action in tools.registry.registry.actions.items() if name in READ_ACTIONS}
         agent = ReadOnlyAgent(
@@ -192,6 +223,7 @@ async def _run_task(task: str, max_steps: int) -> str:
             final_response_after_failure=False,
             step_timeout=60,
         )
+        agent.task_progress = progress
         result = await agent.run(max_steps=max_steps)
         if agent.blocked_reason:
             return agent.blocked_reason
@@ -199,9 +231,9 @@ async def _run_task(task: str, max_steps: int) -> str:
         return final or "任务执行完毕，但没有返回文本结果。"
     finally:
         try:
-            await browser.kill()
+            await asyncio.wait_for(browser.kill(), timeout=10)
         except Exception:
-            pass
+            logging.getLogger(__name__).warning('Browser cleanup did not finish normally; inspect owned browser processes')
 
 
 @mcp.tool()

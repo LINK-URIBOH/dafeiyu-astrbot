@@ -105,7 +105,11 @@ git push origin fnos-linux
 
 浏览器原生 DOM 序列化参数在默认属性之外增加 `href`，让模型读取页面真实视频链接，不靠点击卡片或猜测 BV 号补链接。不新增 MCP 接口或浏览器动作。
 
-更新现有部署时只安装 `browser/server.py`、`browser/access_guard.py` 与构建文件，使用新标签 `dafeiyu-browser:fnos-login-guard-20261122`，保留旧镜像及浏览器数据。正常构建：`docker compose build browser`；仅变更源码、必须保留当前依赖时，可从已记录镜像 ID 本地派生并 COPY 这两个文件。将同名镜像标签写入现有 Compose 的 browser 服务，只执行 `docker compose up -d --no-deps browser`（携带该部署已有的覆盖文件），不重启 AstrBot 或 QQ。
+更新现有部署时只安装 `browser/server.py`、`browser/access_guard.py`、可执行的 `browser/chromium-blank.sh` 与构建文件，使用新标签 `dafeiyu-browser:fnos-startup-20261123`，保留旧镜像及浏览器数据。正常构建：`docker compose build browser`；仅变更源码、必须保留当前依赖时，可从已记录镜像 ID 本地派生并 COPY 这三个文件（启动脚本权限为 755）。将同名镜像标签写入现有 Compose 的 browser 服务，只执行 `docker compose up -d --no-deps browser`（携带该部署已有的覆盖文件），不重启 AstrBot 或 QQ。
+
+2026-11-23 启动修复：固定启动脚本原样传递 browser-use 的 Chromium 参数，并追加 `about:blank`，避免默认内部新标签页被白名单关闭后触发启动事件等待。脚本使用现有 `BROWSER_CHROME_PATH` 指定的真实 Chromium，不清空或改写持久配置，不允许 chrome:// 通配访问。
+
+工具现在区分浏览器启动、页面检查、网页读取和模型调用阶段，并报告实际耗时。内部 30 秒启动超时不再冒充整体 180 秒超时；整体上限仍为 180 秒。退出清理最多等待 10 秒，报告实际时间含清理；没有新增自动重试。
 
 已有每日 B站任务通过 `python3 tools/update_bili_policy.py --backup-dir incoming/本次私密备份目录` 精确更新说明。该工具仅 PATCH 指定任务的 note，保留收件人、模型、人格、时区、开关及 20:30 调度；说明不符合已知旧版时拒绝修改，不运行初始化脚本。备份含私聊会话标识，应保持私密。
 

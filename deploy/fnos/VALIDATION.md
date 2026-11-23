@@ -31,6 +31,12 @@ docker exec -w /AstrBot -e PYTHONPATH=/tmp/fnos-context-tests/patches:/AstrBot d
 docker exec -w /AstrBot dafeiyu-astrbot python -m pytest data/plugins/astrbot_plugin_livingmemory/tests/test_memory_scope.py data/plugins/astrbot_plugin_livingmemory/tests/test_group_capture_filter.py -q
 ```
 
+## 2026-11-23 启动与超时修复验收
+
+`HOME=/tmp ANONYMIZED_TELEMETRY=false python -m unittest discover -s browser/tests -v`：16 项通过，包括 23 个 DOM 场景及 5 次冷启动/复用目录启动。测试配置特意预置 Chrome 内部新标签启动页，实际均进入 about:blank；连续重复调用 start 也能正常返回。覆盖内部超时与整体时限区分、真实耗时、调用间阶段隔离及启动失败清理，不调用模型或外网。
+
+同依赖镜像中运行未变动的根目录全量回归：905 项通过，2 项跳过。此前记录的两个预算测试失败没有在本次运行出现；原记录保留为当时结果。本修复没有修改这些测试或对应手机模块。
+
 ## 代码发布检查
 
 浏览器访问守卫回归在固定 browser-use 0.13.11 的浏览器镜像中运行：

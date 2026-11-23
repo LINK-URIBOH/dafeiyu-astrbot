@@ -9,5 +9,6 @@ RUN python -m pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/si
     && useradd --uid 10001 --create-home browser
 WORKDIR /app
 COPY server.py access_guard.py browser_allowlist.txt ./
+COPY --chmod=755 chromium-blank.sh ./
 USER 10001:10001
 CMD ["python", "/app/server.py"]

@@ -81,7 +81,7 @@ class GuardTests(unittest.IsolatedAsyncioTestCase):
     async def test_real_task_exposes_href_without_losing_default_attributes(self):
         from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES
         fake = SimpleNamespace(blocked_reason=None, run=AsyncMock(return_value=SimpleNamespace(final_result=lambda: 'ok')))
-        browser = SimpleNamespace(kill=AsyncMock())
+        browser = SimpleNamespace(start=AsyncMock(), kill=AsyncMock())
         with patch.object(server, 'Browser', return_value=browser), \
                 patch.object(server, 'ChatDeepSeekNoThinking'), \
                 patch.object(server, 'ReadOnlyAgent', return_value=fake) as constructor:
